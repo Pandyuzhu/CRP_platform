@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 ESP32模拟器 - 用于模拟ESP32控制板接收命令
-此程序会创建两个TCP服务器，分别监听5200和5201端口，模拟两个ESP32控制板
+此程序会创建两个TCP服务器和两个UDP服务器，分别监听5200和5201端口，模拟两个ESP32控制板
 当收到命令时，会解析16进制代码并显示对应的操作
 """
 
@@ -70,6 +70,8 @@ def print_header():
     print(f"{Fore.YELLOW}控制板1 (IP: 192.168.3.120, 端口: 5200) - 搅拌机1和喷射机")
     print(f"{Fore.YELLOW}控制板2 (IP: 192.168.3.121, 端口: 5201) - 搅拌机2和末端喷头")
     print(f"{Fore.CYAN}{Style.BRIGHT}===========================================================")
+    print(f"{Fore.WHITE}已启动 TCP 和 UDP 服务器")
+    print(f"{Fore.CYAN}{Style.BRIGHT}===========================================================")
 
 def print_status():
     """打印当前设备状态"""
@@ -97,7 +99,7 @@ def print_status():
         print(f"纤维喷射: {Fore.GREEN}运行中" if board2_status.get("纤维喷射", False) else f"纤维喷射: {Fore.RED}已停止")
         print(f"浆料喷射: {Fore.GREEN}运行中" if board2_status.get("浆料喷射", False) else f"浆料喷射: {Fore.RED}已停止")
 
-def print_command_log(board_id, cmd_value, button_info, log_list):
+def print_command_log(board_id, cmd_value, button_info, log_list, protocol="TCP"):
     """添加命令日志"""
     timestamp = datetime.datetime.now().strftime("%H:%M:%S")
     component = button_info.get("component", "未知")
@@ -105,7 +107,7 @@ def print_command_log(board_id, cmd_value, button_info, log_list):
     action = button_info.get("action", "未知")
     color = button_info.get("color", Fore.WHITE)
     
-    log_entry = f"{timestamp} | 控制板{board_id} | {component} | {color}{name} ({action}){Style.RESET_ALL} | 0x{cmd_value:04X}"
+    log_entry = f"{timestamp} | {protocol} | 控制板{board_id} | {component} | {color}{name} ({action}){Style.RESET_ALL} | 0x{cmd_value:04X}"
     log_list.append(log_entry)
     
     # 只保留最近的10条记录
@@ -143,16 +145,16 @@ def update_device_status(board_id, button_info):
 command_logs = []
 
 def handle_client(client_socket, board_id, buttons_map):
-    """处理客户端连接"""
+    """处理TCP客户端连接"""
     try:
         client_addr = client_socket.getpeername()
-        print(f"{Fore.CYAN}[ESP32模拟器] 控制板{board_id}收到新连接: {client_addr}")
+        print(f"{Fore.CYAN}[ESP32模拟器] 控制板{board_id}收到新TCP连接: {client_addr}")
         
         # 接收命令
         data = client_socket.recv(1024)
         
         if data:
-            print(f"{Fore.CYAN}[ESP32模拟器] 收到原始数据: {data.hex()}")
+            print(f"{Fore.CYAN}[ESP32模拟器] 收到TCP数据: {data.hex()}")
             
             # 解析16进制命令
             if len(data) >= 2:
@@ -167,7 +169,7 @@ def handle_client(client_socket, board_id, buttons_map):
                     update_device_status(board_id, button_info)
                     
                     # 记录命令日志
-                    print_command_log(board_id, cmd_value, button_info, command_logs)
+                    print_command_log(board_id, cmd_value, button_info, command_logs, "TCP")
                     
                     # 刷新显示
                     print_header()
@@ -178,20 +180,65 @@ def handle_client(client_socket, board_id, buttons_map):
                     for log in command_logs:
                         print(log)
                 else:
-                    print(f"\n{Fore.RED}接收到未知命令: 控制板{board_id} - 0x{cmd_value:04X}")
+                    print(f"\n{Fore.RED}接收到未知TCP命令: 控制板{board_id} - 0x{cmd_value:04X}")
             else:
-                print(f"{Fore.RED}接收到无效数据: 控制板{board_id} - {data.hex()}")
+                print(f"{Fore.RED}接收到无效TCP数据: 控制板{board_id} - {data.hex()}")
         
             # 发送响应确认
             client_socket.send(b'\x01')
-            print(f"{Fore.GREEN}[ESP32模拟器] 已发送确认响应")
+            print(f"{Fore.GREEN}[ESP32模拟器] 已发送TCP确认响应")
     except Exception as e:
-        print(f"{Fore.RED}处理客户端时出错: {e}")
+        print(f"{Fore.RED}处理TCP客户端时出错: {e}")
     finally:
         client_socket.close()
-        print(f"{Fore.YELLOW}[ESP32模拟器] 连接已关闭: 控制板{board_id}")
+        print(f"{Fore.YELLOW}[ESP32模拟器] TCP连接已关闭: 控制板{board_id}")
 
-def start_server(host, port, board_id, buttons_map):
+def process_udp_data(data, addr, board_id, buttons_map, udp_socket):
+    """处理UDP数据包"""
+    try:
+        print(f"{Fore.CYAN}[ESP32模拟器] 控制板{board_id}收到UDP数据包，来自: {addr}")
+        
+        if data:
+            print(f"{Fore.CYAN}[ESP32模拟器] 收到UDP数据: {data.hex()}")
+            
+            # 解析16进制命令
+            if len(data) >= 2:
+                # 从网络字节序（大端序）解析命令
+                cmd_value = struct.unpack('>H', data[:2])[0]
+                
+                # 查找命令对应的按钮
+                button_info = buttons_map.get(cmd_value, None)
+                
+                if button_info:
+                    # 更新设备状态
+                    update_device_status(board_id, button_info)
+                    
+                    # 记录命令日志
+                    print_command_log(board_id, cmd_value, button_info, command_logs, "UDP")
+                    
+                    # 刷新显示
+                    print_header()
+                    print_status()
+                    
+                    # 打印命令日志
+                    print(f"\n{Back.WHITE}{Fore.BLACK}{Style.BRIGHT} 命令日志 (最近10条) ")
+                    for log in command_logs:
+                        print(log)
+                    
+                    # 发送UDP响应确认
+                    try:
+                        udp_socket.sendto(b'\x01', addr)
+                        print(f"{Fore.GREEN}[ESP32模拟器] 已发送UDP确认响应到 {addr}")
+                    except Exception as e:
+                        print(f"{Fore.RED}发送UDP响应时出错: {e}")
+                else:
+                    print(f"\n{Fore.RED}接收到未知UDP命令: 控制板{board_id} - 0x{cmd_value:04X}")
+            else:
+                print(f"{Fore.RED}接收到无效UDP数据: 控制板{board_id} - {data.hex()}")
+    except Exception as e:
+        print(f"{Fore.RED}处理UDP数据包时出错: {e}")
+
+def start_tcp_server(host, port, board_id, buttons_map):
     """启动TCP服务器"""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -200,6 +247,8 @@ def start_server(host, port, board_id, buttons_map):
         server.bind((host, port))
         server.listen(5)
         server.settimeout(1.0)  # 设置超时，以便可以定期检查running标志
+        
+        print(f"{Fore.GREEN}[ESP32模拟器] 已启动TCP服务器 - 控制板{board_id} - {host}:{port}")
         
         while running:
             try:
@@ -215,12 +264,40 @@ def start_server(host, port, board_id, buttons_map):
                 continue
             except Exception as e:
                 if running:
-                    print(f"{Fore.RED}接受连接时出错: {e}")
+                    print(f"{Fore.RED}接受TCP连接时出错: {e}")
                     time.sleep(1)
     except Exception as e:
-        print(f"{Fore.RED}服务器启动失败: {e}")
+        print(f"{Fore.RED}TCP服务器启动失败: {e}")
     finally:
         server.close()
+
+def start_udp_server(host, port, board_id, buttons_map):
+    """启动UDP服务器"""
+    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
+    try:
+        udp_socket.bind((host, port))
+        udp_socket.settimeout(1.0)  # 设置超时，以便可以定期检查running标志
+        
+        print(f"{Fore.GREEN}[ESP32模拟器] 已启动UDP服务器 - 控制板{board_id} - {host}:{port}")
+        
+        while running:
+            try:
+                data, addr = udp_socket.recvfrom(1024)
+                # 处理UDP数据包
+                process_udp_data(data, addr, board_id, buttons_map, udp_socket)
+            except socket.timeout:
+                # 超时，继续循环
+                continue
+            except Exception as e:
+                if running:
+                    print(f"{Fore.RED}接收UDP数据时出错: {e}")
+                    time.sleep(1)
+    except Exception as e:
+        print(f"{Fore.RED}UDP服务器启动失败: {e}")
+    finally:
+        udp_socket.close()
 
 def signal_handler(sig, frame):
     """处理退出信号"""
@@ -239,42 +316,54 @@ def main():
     board1_port = 5200
     board2_port = 5201
     
-    # 创建两个服务器线程
-    board1_thread = threading.Thread(
-        target=start_server,
+    # 创建服务器线程
+    tcp_board1_thread = threading.Thread(
+        target=start_tcp_server,
         args=(host, board1_port, 1, BOARD1_BUTTONS)
     )
-    board1_thread.daemon = True
+    tcp_board1_thread.daemon = True
     
-    board2_thread = threading.Thread(
-        target=start_server,
+    tcp_board2_thread = threading.Thread(
+        target=start_tcp_server,
         args=(host, board2_port, 2, BOARD2_BUTTONS)
     )
-    board2_thread.daemon = True
+    tcp_board2_thread.daemon = True
     
-    # 打印初始状态
+    udp_board1_thread = threading.Thread(
+        target=start_udp_server,
+        args=(host, board1_port, 1, BOARD1_BUTTONS)
+    )
+    udp_board1_thread.daemon = True
+    
+    udp_board2_thread = threading.Thread(
+        target=start_udp_server,
+        args=(host, board2_port, 2, BOARD2_BUTTONS)
+    )
+    udp_board2_thread.daemon = True
+    
+    # 打印表头
     print_header()
     print_status()
     
-    print(f"\n{Back.WHITE}{Fore.BLACK}{Style.BRIGHT} 命令日志 (最近10条) ")
-    print(f"{Fore.YELLOW}等待命令...")
-    
     # 启动服务器线程
-    board1_thread.start()
-    board2_thread.start()
+    tcp_board1_thread.start()
+    tcp_board2_thread.start()
+    udp_board1_thread.start()
+    udp_board2_thread.start()
+    
+    # 打印启动信息
+    print(f"\n{Fore.GREEN}ESP32模拟器已启动，按 Ctrl+C 退出")
     
     # 主线程等待
     try:
         while running:
-            time.sleep(0.1)
+            time.sleep(1)
     except KeyboardInterrupt:
-        pass
+        print(f"\n{Fore.YELLOW}接收到中断信号，正在退出...")
     
-    # 等待服务器线程结束
-    board1_thread.join(timeout=2.0)
-    board2_thread.join(timeout=2.0)
-    
-    print(f"{Fore.YELLOW}已退出")
+    # 等待所有线程结束
+    time.sleep(2)
+    print(f"{Fore.GREEN}ESP32模拟器已退出")
 
 if __name__ == "__main__":
     main() 

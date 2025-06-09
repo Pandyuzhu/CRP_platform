@@ -191,7 +191,7 @@ export default {
     sprayerButtons() {
       // 获取控制板1上喷射机相关的按钮
       return this.board1Buttons.filter(btn => 
-        ['喷浆启动', '喷浆停止'].includes(btn.name)
+        ['喷浆启动', '喷浆停止', '喷浆反转'].includes(btn.name)
       );
     },
     

@@ -278,31 +278,28 @@ async def video_feed_api():
 
 @app.get("/api/stream_status")
 async def stream_status_api():
-    """获取视频流状态API"""
+    """获取流状态API"""
+    global stream_info
+    
+    # Calculate the stream duration if applicable
+    duration = None
+    if stream_info["start_time"] is not None and is_streaming:
+        duration = time.time() - stream_info["start_time"]
+        duration = round(duration, 1)
+    
+    # 获取ZED相机连接状态
     zed_connected = zed_server.is_zed_connected()
     
-    if camera:
-        return {
-            "is_streaming": is_streaming,
-            "fps": stream_info["fps"],
-            "resolution": stream_info["resolution"],
-            "frame_count": stream_info["frame_count"],
-            "uptime": int(time.time() - stream_info["start_time"]) if stream_info["start_time"] else 0,
-            "zed_connected": zed_connected,  # 添加ZED相机连接状态
-            "stream_active": camera.is_active,
-            "camera_index": camera.camera_index
-        }
-    else:
-        return {
-            "is_streaming": is_streaming,
-            "fps": stream_info["fps"],
-            "resolution": stream_info["resolution"],
-            "frame_count": stream_info["frame_count"],
-            "uptime": int(time.time() - stream_info["start_time"]) if stream_info["start_time"] else 0,
-            "zed_connected": zed_connected,  # 添加ZED相机连接状态
-            "stream_active": False,
-            "camera_index": -1
-        }
+    return {
+        "streaming": is_streaming,
+        "fps": stream_info["fps"],
+        "frame_count": stream_info["frame_count"],
+        "duration": duration,
+        "resolution": stream_info["resolution"],
+        "source": stream_info["source_address"],
+        "zed_connected": zed_connected,  # 添加ZED相机连接状态
+        "timestamp": datetime.datetime.now().isoformat()
+    }
 
 @app.websocket("/ws/video")
 async def websocket_endpoint(websocket: WebSocket):
@@ -345,102 +342,21 @@ async def websocket_endpoint_api(websocket: WebSocket):
     """WebSocket API endpoint for video streaming"""
     await websocket_endpoint(websocket)
 
-# ZED相机WebSocket端点
+@app.websocket("/ws/zed")
+async def zed_websocket_endpoint(websocket: WebSocket):
+    """ZED相机统一WebSocket端点 - 处理RGB和深度数据并支持模式切换"""
+    await zed_server.handle_websocket(websocket)
+
+# 保留旧的端点以向后兼容，但使用新的统一处理
 @app.websocket("/ws/zed/rgb")
 async def zed_rgb_endpoint(websocket: WebSocket):
-    """ZED RGB视频流WebSocket端点"""
-    # 尝试连接，如果达到限制则会返回False
-    if not await manager.connect(websocket):
-        return  # 连接被拒绝，直接返回
-        
-    try:
-        # 添加超时机制，防止无限循环
-        max_inactive_time = 60  # 最大不活跃时间（秒）
-        start_time = time.time()
-        
-        while not shutdown_event.is_set():  # 检查关闭事件
-            # 检查连接是否已超时
-            if time.time() - start_time > max_inactive_time:
-                logger.info(f"ZED RGB WebSocket连接超时，已断开")
-                break
-                
-            with zed_server.rgb_frame_lock:
-                if zed_server.rgb_frame is not None:
-                    # 重置超时计时器
-                    start_time = time.time()
-                    
-                    # 缩放图像以减少带宽
-                    resized_frame = cv2.resize(zed_server.rgb_frame, (640, 360))
-                    # 编码为JPEG
-                    _, buffer = cv2.imencode('.jpg', resized_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                    frame_bytes = buffer.tobytes()
-                    
-                    # 发送到客户端
-                    await websocket.send_bytes(frame_bytes)
-                else:
-                    # 如果没有帧可发送，发送空帧
-                    empty_frame = np.zeros((1, 1, 3), dtype=np.uint8)
-                    _, buffer = cv2.imencode('.jpg', empty_frame)
-                    frame_bytes = buffer.tobytes()
-                    await websocket.send_bytes(frame_bytes)
-            
-            # 控制帧率
-            await asyncio.sleep(0.05)  # ~20 FPS
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        if not shutdown_event.is_set():  # 只在非关闭状态下记录错误
-            logger.error(f"ZED RGB WebSocket错误: {e}")
-    finally:
-        manager.disconnect(websocket)
+    """ZED RGB视频流WebSocket端点 (向后兼容)"""
+    await zed_websocket_endpoint(websocket)
 
 @app.websocket("/ws/zed/depth")
 async def zed_depth_endpoint(websocket: WebSocket):
-    """ZED 深度图WebSocket端点"""
-    # 尝试连接，如果达到限制则会返回False
-    if not await manager.connect(websocket):
-        return  # 连接被拒绝，直接返回
-        
-    try:
-        # 添加超时机制，防止无限循环
-        max_inactive_time = 60  # 最大不活跃时间（秒）
-        start_time = time.time()
-        
-        while not shutdown_event.is_set():  # 检查关闭事件
-            # 检查连接是否已超时
-            if time.time() - start_time > max_inactive_time:
-                logger.info(f"ZED Depth WebSocket连接超时，已断开")
-                break
-                
-            with zed_server.depth_frame_lock:
-                if zed_server.depth_frame is not None:
-                    # 重置超时计时器
-                    start_time = time.time()
-                    
-                    # 缩放图像以减少带宽
-                    resized_frame = cv2.resize(zed_server.depth_frame, (640, 360))
-                    # 编码为JPEG
-                    _, buffer = cv2.imencode('.jpg', resized_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                    frame_bytes = buffer.tobytes()
-                    
-                    # 发送到客户端
-                    await websocket.send_bytes(frame_bytes)
-                else:
-                    # 如果没有帧可发送，发送空帧
-                    empty_frame = np.zeros((1, 1, 3), dtype=np.uint8)
-                    _, buffer = cv2.imencode('.jpg', empty_frame)
-                    frame_bytes = buffer.tobytes()
-                    await websocket.send_bytes(frame_bytes)
-            
-            # 控制帧率
-            await asyncio.sleep(0.05)  # ~20 FPS
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        if not shutdown_event.is_set():  # 只在非关闭状态下记录错误
-            logger.error(f"ZED Depth WebSocket错误: {e}")
-    finally:
-        manager.disconnect(websocket)
+    """ZED 深度图WebSocket端点 (向后兼容)"""
+    await zed_websocket_endpoint(websocket)
 
 # 修改清理资源函数，添加关闭WebSocket连接
 async def async_cleanup_resources():

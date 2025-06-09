@@ -31,8 +31,8 @@ ESP32_BOARDS = {
         ]
     },
     "board2": {
-        "ip": "192.168.3.121",
-        "port": 5201,
+        "ip": "192.168.0.121",
+        "port": 3540,
         "name": "搅拌机2和末端喷头控制板",
         "buttons": [
             {"id": 1, "name": "搅拌运行", "action": "启动", "hex_code": "0x0001", "status": False},
@@ -68,36 +68,37 @@ class ESP32Controller:
         self.boards = {
             "board1": {
                 "name": "控制板1",
-                "ip": "192.168.3.120",  # ESP32控制板1的IP地址
-                "port": 5200,          # ESP32控制板1的端口
+                "ip": "192.168.0.120",  # ESP32控制板1的IP地址
+                "port": 3540,          # ESP32控制板1的端口
                 "description": "搅拌机1和喷射机控制",
                 "buttons": [
-                    {"id": 1, "name": "搅拌运行", "action": "启动", "hex_code": "0x0001", "status": False},
-                    {"id": 2, "name": "搅拌停止", "action": "停止", "hex_code": "0x0002", "status": False},
-                    {"id": 3, "name": "输送启动", "action": "启动", "hex_code": "0x0004", "status": False},
-                    {"id": 4, "name": "输送停止", "action": "停止", "hex_code": "0x0008", "status": False},
-                    {"id": 5, "name": "喷浆启动", "action": "启动", "hex_code": "0x0010", "status": False},
-                    {"id": 6, "name": "喷浆停止", "action": "停止", "hex_code": "0x0020", "status": False},
-                    {"id": 7, "name": "水泵启动", "action": "启动", "hex_code": "0x0040", "status": False},
-                    {"id": 8, "name": "水泵停止", "action": "停止", "hex_code": "0x0080", "status": False},
-                    {"id": 9, "name": "水阀启动", "action": "启动", "hex_code": "0x0100", "status": False},
-                    {"id": 10, "name": "水阀停止", "action": "停止", "hex_code": "0x0200", "status": False}
+                    {"id": 1, "name": "搅拌运行", "action": "启动", "hex_code": "0x0100", "status": False},
+                    {"id": 2, "name": "搅拌停止", "action": "停止", "hex_code": "0x0200", "status": False},
+                    {"id": 3, "name": "输送启动", "action": "启动", "hex_code": "0x0400", "status": False},
+                    {"id": 4, "name": "输送停止", "action": "停止", "hex_code": "0x0800", "status": False},
+                    {"id": 5, "name": "喷浆启动", "action": "启动", "hex_code": "0x1000", "status": False},
+                    {"id": 6, "name": "喷浆停止", "action": "停止", "hex_code": "0x2000", "status": False},
+                    {"id": 7, "name": "水泵启动", "action": "启动", "hex_code": "0x4000", "status": False},
+                    {"id": 8, "name": "水泵停止", "action": "停止", "hex_code": "0x8000", "status": False},
+                    {"id": 9, "name": "水阀启动", "action": "启动", "hex_code": "0x0001", "status": False},
+                    {"id": 10, "name": "水阀停止", "action": "停止", "hex_code": "0x0002", "status": False},
+                    {"id": 11, "name": "喷浆反转", "action": "反转", "hex_code": "0x0004", "status": False},
                 ]
             },
             "board2": {
                 "name": "控制板2",
-                "ip": "192.168.3.121",  # ESP32控制板2的IP地址
-                "port": 5201,          # ESP32控制板2的端口
+                "ip": "192.168.0.121",  # ESP32控制板2的IP地址
+                "port": 3540,          # ESP32控制板2的端口
                 "description": "搅拌机2和末端喷头控制",
                 "buttons": [
-                    {"id": 1, "name": "搅拌运行", "action": "启动", "hex_code": "0x0001", "status": False},
-                    {"id": 2, "name": "搅拌停止", "action": "停止", "hex_code": "0x0002", "status": False},
-                    {"id": 3, "name": "输送启动", "action": "启动", "hex_code": "0x0004", "status": False},
-                    {"id": 4, "name": "输送停止", "action": "停止", "hex_code": "0x0008", "status": False},
-                    {"id": 5, "name": "水泵启动", "action": "启动", "hex_code": "0x0010", "status": False},
-                    {"id": 6, "name": "水泵停止", "action": "停止", "hex_code": "0x0020", "status": False},
-                    {"id": 7, "name": "水阀启动", "action": "启动", "hex_code": "0x0040", "status": False},
-                    {"id": 8, "name": "水阀停止", "action": "停止", "hex_code": "0x0080", "status": False},
+                    {"id": 1, "name": "搅拌运行", "action": "启动", "hex_code": "0x0100", "status": False},
+                    {"id": 2, "name": "搅拌停止", "action": "停止", "hex_code": "0x0200", "status": False},
+                    {"id": 3, "name": "输送启动", "action": "启动", "hex_code": "0x0400", "status": False},
+                    {"id": 4, "name": "输送停止", "action": "停止", "hex_code": "0x0800", "status": False},
+                    {"id": 5, "name": "水泵启动", "action": "启动", "hex_code": "0x1000", "status": False},
+                    {"id": 6, "name": "水泵停止", "action": "停止", "hex_code": "0x2000", "status": False},
+                    {"id": 7, "name": "水阀启动", "action": "启动", "hex_code": "0x4000", "status": False},
+                    {"id": 8, "name": "水阀停止", "action": "停止", "hex_code": "0x8000", "status": False},
                     {"id": 9, "name": "纤维喷射启动", "action": "启动", "hex_code": "0x0100", "status": False},
                     {"id": 10, "name": "纤维喷射停止", "action": "停止", "hex_code": "0x0200", "status": False},
                     {"id": 11, "name": "浆料喷射启动", "action": "启动", "hex_code": "0x0400", "status": False},
@@ -167,43 +168,56 @@ class ESP32Controller:
             return {"error": "无效的按钮ID"}
         
         try:
-            # 创建TCP Socket连接
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # 创建UDP Socket连接
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(3.0)  # 设置超时时间
             
-            logger.info(f"正在连接到ESP32控制板 {board_id}: {board['ip']}:{board['port']}")
-            
-            # 尝试连接
-            try:
-                await asyncio.to_thread(sock.connect, (board['ip'], board['port']))
-                logger.info(f"成功连接到ESP32控制板 {board_id}")
-            except Exception as e:
-                logger.warning(f"尝试使用本地连接: 127.0.0.1:{board['port']}")
-                # 如果连接失败，尝试连接到本地模拟器
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(3.0)
-                await asyncio.to_thread(sock.connect, ('127.0.0.1', board['port']))
-                logger.info(f"成功连接到本地ESP32模拟器 {board_id}")
-            
-            # 更新连接状态
-            with self.status_lock:
-                self.connection_status[board_id] = True
+            logger.info(f"准备通过UDP发送命令到ESP32控制板 {board_id}: {board['ip']}:{board['port']}")
             
             # 将16进制代码转换为字节
             hex_code = int(button["hex_code"], 16)
             command = hex_code.to_bytes(2, byteorder='big')
             
-            logger.info(f"发送命令到ESP32控制板 {board_id}: 按钮={button['name']}, 命令={button['hex_code']}")
-            await asyncio.to_thread(sock.sendall, command)
+            # 尝试发送UDP数据包
+            try:
+                # UDP不需要预先连接，直接发送到目标地址
+                await asyncio.to_thread(sock.sendto, command, (board['ip'], board['port']))
+                # logger.info(f"成功发送UDP命令到ESP32控制板 {board_id}: {board['ip']}:{board['port']}")
+                
+                # 尝试接收响应 (UDP是无连接的，可能不会收到响应)
+                try:
+                    sock.settimeout(2.0)  # 设置接收响应的超时时间
+                    response, addr = await asyncio.to_thread(sock.recvfrom, 1024)
+                    logger.info(f"收到来自 {addr} 的UDP响应: {response.hex() if response else '无响应'}")
+                    # 更新连接状态
+                    with self.status_lock:
+                        self.connection_status[board_id] = True
+                except (socket.timeout, socket.error):
+                    logger.warning(f"未收到ESP32控制板 {board_id} 的UDP响应，但这可能是正常的")
+                    # 尝试发送成功，但没收到响应时也认为连接正常
+                    with self.status_lock:
+                        self.connection_status[board_id] = True
+            except Exception as e:
+                logger.warning(f"尝试连接实际设备失败，使用本地UDP连接: 127.0.0.1:{board['port']}")
+                # 如果连接失败，尝试连接到本地模拟器
+                await asyncio.to_thread(sock.sendto, command, ('127.0.0.1', board['port']))
+                logger.info(f"成功发送UDP命令到本地ESP32模拟器: 127.0.0.1:{board['port']}")
+                
+                try:
+                    sock.settimeout(2.0)
+                    response, addr = await asyncio.to_thread(sock.recvfrom, 1024)
+                    logger.info(f"收到来自本地模拟器 {addr} 的UDP响应: {response.hex() if response else '无响应'}")
+                    with self.status_lock:
+                        self.connection_status[board_id] = True
+                except (socket.timeout, socket.error):
+                    logger.warning("未收到本地模拟器的UDP响应，但这可能是正常的")
+                    # 即使没收到响应，也认为连接正常（因为UDP特性）
+                    with self.status_lock:
+                        self.connection_status[board_id] = True
             
-            # 等待响应
-            response = await asyncio.to_thread(sock.recv, 1024)
-            logger.info(f"收到响应: {response.hex() if response else '无响应'}")
-            
-            # 关闭连接
+            # 关闭套接字
             sock.close()
             
-            # 即使没有得到有效响应，也更新按钮状态，以保证前端能正常工作
             # 更新按钮状态
             if button["action"] == "启动":
                 self.update_button_status(board_id, button_id, True)
@@ -218,33 +232,11 @@ class ESP32Controller:
             
             return {
                 "success": True, 
-                "message": f"成功发送命令: {button['name']}", 
-                "response": response.hex() if response else "无响应"
+                "message": f"成功发送UDP命令: {button['name']}"
             }
             
-        except (socket.timeout, socket.error) as e:
-            # 更新连接状态
-            with self.status_lock:
-                self.connection_status[board_id] = False
-            
-            # 即使通信失败，也更新按钮状态，以保证前端能正常工作
-            if button["action"] == "启动":
-                self.update_button_status(board_id, button_id, True)
-                if button_id % 2 == 1:
-                    self.update_button_status(board_id, button_id + 1, False)
-            else:
-                self.update_button_status(board_id, button_id, False)
-                if button_id % 2 == 0:
-                    self.update_button_status(board_id, button_id - 1, False)
-            
-            logger.error(f"与ESP32控制板 {board_id} 通信失败: {str(e)}")
-            return {
-                "success": True,  # 即使通信失败，也返回成功，以保证前端能正常工作
-                "message": f"已发送命令: {button['name']} (无法确认设备是否接收)", 
-                "warning": f"与设备通信失败: {str(e)}"
-            }
         except Exception as e:
-            logger.error(f"发送命令时出现未知错误: {str(e)}")
+            logger.error(f"发送UDP命令时出现未知错误: {str(e)}")
             
             # 即使发生错误，也更新按钮状态，以保证前端能正常工作
             if button["action"] == "启动":
@@ -259,7 +251,7 @@ class ESP32Controller:
             return {
                 "success": True,  # 即使出错，也返回成功，以保证前端能正常工作
                 "message": f"已发送命令: {button['name']} (处理过程中出错)", 
-                "warning": f"处理命令时出错: {str(e)}"
+                "warning": f"处理UDP命令时出错: {str(e)}"
             }
 
 # 创建全局控制器实例

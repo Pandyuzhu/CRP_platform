@@ -10,6 +10,9 @@ import atexit
 import signal
 from fastapi import WebSocket
 import logging
+import base64
+import json
+from typing import List
 
 # 全局变量用于存储最新的图像数据
 rgb_frame = None
@@ -23,6 +26,10 @@ zed_connected_lock = threading.Lock()
 
 # 用于优雅关闭的事件标志
 shutdown_event = threading.Event()
+
+# 存储所有活跃的WebSocket连接及其模式
+active_connections: List[dict] = []
+connections_lock = threading.Lock()
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -57,6 +64,108 @@ def cleanup_resources():
     # 给线程一些时间来退出
     time.sleep(0.5)
     logger.info("ZED服务器资源清理完成")
+
+async def register_websocket(websocket: WebSocket, mode="rgb"):
+    """
+    注册新的WebSocket连接
+    """
+    await websocket.accept()
+    with connections_lock:
+        # 将连接和模式一起存储
+        active_connections.append({"websocket": websocket, "mode": mode})
+    logger.info(f"新的WebSocket客户端已连接，当前连接数: {len(active_connections)}，模式: {mode}")
+
+def remove_websocket(websocket: WebSocket):
+    """
+    移除断开的WebSocket连接
+    """
+    with connections_lock:
+        for i, conn in enumerate(active_connections):
+            if conn["websocket"] == websocket:
+                active_connections.pop(i)
+                break
+    logger.info(f"WebSocket客户端已断开，当前连接数: {len(active_connections)}")
+
+async def send_frames_to_clients():
+    """
+    向所有活跃的WebSocket客户端发送帧和状态信息
+    """
+    while not shutdown_event.is_set():
+        try:
+            # 获取状态
+            is_connected = is_zed_connected()
+            
+            # 准备要发送的帧数据，对每个客户端使用其自己的模式
+            with connections_lock:
+                for conn in list(active_connections):  # 使用列表拷贝，以便在循环中可以修改原列表
+                    websocket = conn["websocket"]
+                    mode = conn["mode"]
+                    
+                    try:
+                        frame_data = None
+                        if is_connected:
+                            if mode == "rgb" and rgb_frame is not None:
+                                with rgb_frame_lock:
+                                    _, buffer = cv2.imencode('.jpg', rgb_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                                    frame_data = base64.b64encode(buffer).decode('utf-8')
+                            elif mode == "depth" and depth_frame is not None:
+                                with depth_frame_lock:
+                                    _, buffer = cv2.imencode('.jpg', depth_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                                    frame_data = base64.b64encode(buffer).decode('utf-8')
+                        
+                        # 准备状态和帧数据消息
+                        message = {
+                            "zed_connected": is_connected,
+                            "frame_data": frame_data,
+                            "mode": mode
+                        }
+                        
+                        # 发送到客户端
+                        await websocket.send_json(message)
+                    except Exception as e:
+                        logger.warning(f"向WebSocket客户端发送数据时出错: {e}")
+                        # 标记待删除
+                        conn["to_remove"] = True
+                
+                # 移除已断开的连接
+                active_connections[:] = [conn for conn in active_connections if not conn.get("to_remove", False)]
+            
+            # 控制发送频率，避免过载
+            await asyncio.sleep(0.1)  # 10 FPS
+            
+        except Exception as e:
+            logger.error(f"发送帧数据时出错: {e}")
+            await asyncio.sleep(1)  # 出错时暂停较长时间
+
+async def handle_websocket(websocket: WebSocket):
+    """
+    处理WebSocket连接的函数
+    """
+    # 默认模式是RGB
+    current_mode = "rgb"
+    await register_websocket(websocket, current_mode)
+    
+    try:
+        while not shutdown_event.is_set():
+            # 接收来自客户端的消息，如模式切换
+            try:
+                data = await websocket.receive_json()
+                if "mode" in data:
+                    current_mode = data["mode"]
+                    logger.info(f"客户端请求切换到 {current_mode} 模式")
+                    
+                    # 更新连接的模式
+                    with connections_lock:
+                        for conn in active_connections:
+                            if conn["websocket"] == websocket:
+                                conn["mode"] = current_mode
+                                break
+            except Exception as e:
+                # WebSocket可能已关闭
+                logger.warning(f"接收WebSocket消息时出错: {e}")
+                break
+    finally:
+        remove_websocket(websocket)
 
 def start_zed_server(host='0.0.0.0', port=5060):
     """
@@ -144,7 +253,8 @@ def start_zed_server(host='0.0.0.0', port=5060):
 
                             np_arr = np.frombuffer(data, np.uint8)
                             rgb_img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                            
+                            rgb_img =cv2.cvtColor(rgb_img,cv2.COLOR_BGR2RGB) 
+
                             if rgb_img is not None:
                                 # 更新全局RGB帧
                                 with rgb_frame_lock:
@@ -197,7 +307,11 @@ def init_zed_server():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # 创建并启动线程
+    # 创建并启动ZED接收服务器线程
     zed_thread = threading.Thread(target=start_zed_server, daemon=True)
     zed_thread.start()
+    
+    # 创建并启动WebSocket帧发送线程
+    asyncio.create_task(send_frames_to_clients())
+    
     return zed_thread 

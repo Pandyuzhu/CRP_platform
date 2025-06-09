@@ -2,24 +2,13 @@
   <div class="zed-stream">
     <!-- 视频显示区域 -->
     <div class="video-container">
-      <!-- RGB流 -->
-      <div v-show="currentMode === 'rgb'" class="stream-wrapper">
-        <img ref="rgbElement" class="video-feed" alt="RGB Stream" />
+      <!-- 单一图像容器，通过CSS切换显示 -->
+      <div class="stream-wrapper">
+        <img ref="streamElement" class="video-feed" alt="ZED Stream" />
         <div v-if="!isZedConnected" class="offline-overlay">
-          <div class="offline-message">RGB 视频信号离线</div>
+          <div class="offline-message">ZED 相机离线</div>
         </div>
-        <div v-if="isRgbConnecting" class="connecting-overlay">
-          <div class="loader"></div>
-        </div>
-      </div>
-      
-      <!-- 深度图流 -->
-      <div v-show="currentMode === 'depth'" class="stream-wrapper">
-        <img ref="depthElement" class="video-feed" alt="Depth Stream" />
-        <div v-if="!isZedConnected" class="offline-overlay">
-          <div class="offline-message">深度图信号离线</div>
-        </div>
-        <div v-if="isDepthConnecting" class="connecting-overlay">
+        <div v-if="isConnecting" class="connecting-overlay">
           <div class="loader"></div>
         </div>
       </div>
@@ -62,6 +51,11 @@
         <span class="info-value">{{ currentMode === 'rgb' ? 'RGB 视图' : '深度图' }}</span>
       </div>
     </div>
+
+    <!-- 调试信息，开发时使用 -->
+    <div v-if="false" class="debug-overlay">
+      <pre>{{ debugInfo }}</pre>
+    </div>
   </div>
 </template>
 
@@ -72,38 +66,25 @@ export default {
   data() {
     return {
       currentMode: 'rgb', // 'rgb' 或 'depth'
-      isRgbActive: false,
-      isDepthActive: false,
-      isRgbConnecting: false,
-      isDepthConnecting: false,
-      rgbWebsocket: null,
-      depthWebsocket: null,
-      reconnectAttempts: {
-        rgb: 0,
-        depth: 0
-      },
+      isStreamActive: false,
+      isConnecting: false,
+      websocket: null,
+      reconnectAttempts: 0,
       maxReconnectAttempts: 5,
-      reconnectTimers: {
-        rgb: null,
-        depth: null
-      },
+      reconnectTimer: null,
       deviceCheckTimer: null,
-      consecutiveEmptyFrames: {
-        rgb: 0,
-        depth: 0
-      },
+      consecutiveEmptyFrames: 0,
       lastStatusCheckTime: 0,
-      isZedConnected: false, // 新增ZED相机连接状态标志
-      _hasInitialized: false
+      isZedConnected: false, // ZED相机连接状态标志
+      _hasInitialized: false,
+      lastReceivedMode: null, // 跟踪从服务器接收的最后一个模式
+      debugInfo: { serverMode: null, lastFrameTime: null }
     }
   },
   computed: {
     isCurrentModeActive() {
-      // 设备状态判断逻辑修改：优先考虑ZED相机是否物理连接
-      if (this.isZedConnected) {
-        return this.currentMode === 'rgb' ? this.isRgbActive : this.isDepthActive;
-      }
-      return false;
+      // 设备状态判断逻辑：优先考虑ZED相机是否物理连接
+      return this.isZedConnected && this.isStreamActive;
     }
   },
   watch: {
@@ -115,8 +96,7 @@ export default {
       console.log('ZED camera physical connection status changed:', newValue);
       // 当ZED相机断开连接时，确保其他状态也随之更新
       if (!newValue) {
-        this.isRgbActive = false;
-        this.isDepthActive = false;
+        this.isStreamActive = false;
       }
       // 通知父组件ZED相机状态变化
       this.$emit('stream-status-change', this.isCurrentModeActive);
@@ -125,25 +105,22 @@ export default {
   methods: {
     switchMode(mode) {
       if (this.currentMode !== mode) {
+        console.log(`请求切换到${mode}模式`);
         this.currentMode = mode;
         
-        // 确保两种流都是连接的
-        if (mode === 'rgb' && !this.isRgbActive && !this.rgbWebsocket && !this.isRgbConnecting) {
-          console.log('切换到RGB模式，确保RGB流连接');
-          this.startRgbStream();
-        } else if (mode === 'depth' && !this.isDepthActive && !this.depthWebsocket && !this.isDepthConnecting) {
-          console.log('切换到深度模式，确保深度流连接');
-          this.startDepthStream();
+        // 如果WebSocket已连接，发送模式切换命令
+        if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+          const modeMessage = JSON.stringify({ mode: mode });
+          console.log(`发送模式切换命令: ${modeMessage}`);
+          this.websocket.send(modeMessage);
         }
-        
-        console.log(`切换到${mode}模式`);
       }
     },
     
-    // 确保在组件失活时停止所有WebSocket连接
+    // 确保在组件失活时停止WebSocket连接
     deactivateComponent() {
-      console.log('ZedStream组件被缓存，停止所有连接');
-      this.stopAllStreams();
+      console.log('ZedStream组件被缓存，停止连接');
+      this.stopStream();
     },
     
     // 组件重新激活时
@@ -153,7 +130,7 @@ export default {
       this.checkZedConnectionStatus();
     },
     
-    checkDeviceStatus() {
+    checkZedConnectionStatus() {
       // 防止过于频繁地检查
       const now = Date.now();
       if (now - this.lastStatusCheckTime < 2000) {
@@ -167,25 +144,20 @@ export default {
         .then(data => {
           console.log('ZED camera status checked:', data);
           
-          // 检查后端日志中是否有ZED相机连接的信息
+          // 检查后端是否有ZED相机连接的信息
           if (data && typeof data.zed_connected !== 'undefined') {
             // 明确更新ZED相机连接状态
             this.isZedConnected = data.zed_connected;
             
             // 如果后端明确指示ZED相机已连接但是当前显示为离线，强制更新状态
-            if (data.zed_connected === true) {
-              console.log('Backend reports ZED camera is connected, updating UI');
+            if (data.zed_connected === true && !this.isStreamActive && !this.websocket) {
+              console.log('Backend reports ZED camera is connected, starting stream');
+              this.startStream();
             } else if (data.zed_connected === false) {
               // 如果后端明确指示ZED相机已断开，强制更新状态
               console.log('Backend reports ZED camera is disconnected, updating UI');
-              this.isRgbActive = false;
-              this.isDepthActive = false;
-            }
-          } else {
-            // 如果API没有直接提供ZED相机连接状态，根据是否能接收到视频帧来推断
-            // 如果有活跃的RGB或深度流，认为ZED相机是连接的
-            if (this.isRgbActive || this.isDepthActive) {
-              this.isZedConnected = true;
+              this.isStreamActive = false;
+              this.stopStream();
             }
           }
         })
@@ -194,397 +166,283 @@ export default {
         });
     },
     
-    startRgbStream() {
+    startStream() {
       // 防止重复连接
-      if (this.isRgbConnecting || this.isRgbActive || this.rgbWebsocket) {
-        console.log('RGB流已连接或正在连接中，不重复连接');
+      if (this.isConnecting || this.isStreamActive || this.websocket) {
+        console.log('ZED流已连接或正在连接中，不重复连接');
         return;
       }
       
-      this.isRgbConnecting = true;
-      this.consecutiveEmptyFrames.rgb = 0;
+      this.isConnecting = true;
+      this.consecutiveEmptyFrames = 0;
       
       try {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host || 'localhost:3000';
-        const wsUrl = `${protocol}//${host}/ws/zed/rgb`;
+        const wsUrl = `${protocol}//${host}/ws/zed`;
         
-        console.log(`连接到RGB WebSocket: ${wsUrl}`);
-        this.rgbWebsocket = new WebSocket(wsUrl);
+        console.log(`连接到ZED WebSocket: ${wsUrl}`);
+        this.websocket = new WebSocket(wsUrl);
         
-        this.rgbWebsocket.onopen = () => {
-          console.log('RGB WebSocket连接已建立');
-          this.isRgbConnecting = false;
-          this.reconnectAttempts.rgb = 0;
+        this.websocket.onopen = () => {
+          console.log('ZED WebSocket连接已建立');
+          this.isConnecting = false;
+          this.reconnectAttempts = 0;
+          
+          // 发送当前模式
+          const modeMessage = JSON.stringify({ mode: this.currentMode });
+          console.log(`连接后发送初始模式: ${modeMessage}`);
+          this.websocket.send(modeMessage);
+          
           // WebSocket连接成功时检查ZED相机状态
-          this.checkDeviceStatus();
+          this.checkZedConnectionStatus();
         };
         
-        this.rgbWebsocket.onmessage = (event) => {
-          // 检查数据大小，如果是空图像（小于100字节），可能是设备发送的心跳包
-          if (event.data.byteLength < 100) {
-            console.log('Received small RGB frame, might be heartbeat');
-            return;
-          }
-          
-          // 收到有效的视频帧，说明ZED相机物理连接正常
-          this.isZedConnected = true;
-          
-          // 只有当收到有效帧且大小正常时，才设置为活跃
-          if (event.data.byteLength > 1000) {
-            this.isRgbActive = true;
-            this.consecutiveEmptyFrames.rgb = 0;
-          }
-          
-          // 将接收到的二进制数据转换为图像
-          const blob = new Blob([event.data], { type: 'image/jpeg' });
-          const url = URL.createObjectURL(blob);
-          
-          // 更新图像元素
-          if (this.$refs.rgbElement) {
-            this.$refs.rgbElement.src = url;
+        this.websocket.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
             
-            // 图像加载后释放对象URL以避免内存泄漏
-            this.$refs.rgbElement.onload = () => {
-              URL.revokeObjectURL(url);
-            };
+            // 更新调试信息
+            this.debugInfo.serverMode = message.mode;
+            this.debugInfo.lastFrameTime = new Date().toISOString();
+            
+            // 处理状态信息
+            if (message.zed_connected !== undefined) {
+              this.isZedConnected = message.zed_connected;
+            }
+            
+            // 记录服务器返回的模式
+            if (message.mode !== undefined) {
+              this.lastReceivedMode = message.mode;
+            }
+            
+            // 如果有帧数据，显示图像
+            if (message.frame_data) {
+              // 收到有效的视频帧，说明ZED相机物理连接正常
+              this.isStreamActive = true;
+              this.consecutiveEmptyFrames = 0;
+              
+              // 显示图像
+              if (this.$refs.streamElement) {
+                this.$refs.streamElement.src = `data:image/jpeg;base64,${message.frame_data}`;
+              }
+            } else {
+              // 没有帧数据，可能是相机离线
+              this.consecutiveEmptyFrames++;
+              if (this.consecutiveEmptyFrames > 10) {
+                this.isStreamActive = false;
+              }
+            }
+          } catch (error) {
+            console.error('Error processing WebSocket message:', error);
           }
         };
         
-        this.rgbWebsocket.onerror = (error) => {
-          console.error('RGB WebSocket错误:', error);
-          this.handleConnectionFailure('rgb');
+        this.websocket.onclose = (event) => {
+          console.log(`ZED WebSocket连接已关闭: ${event.code} ${event.reason}`);
+          this.cleanupWebSocket();
+          
+          // 如果不是用户主动关闭，并且重连尝试次数未超过最大值，尝试重连
+          if (!this._isUserClosing && this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.scheduleReconnect();
+          }
         };
         
-        this.rgbWebsocket.onclose = () => {
-          console.log('RGB WebSocket连接关闭');
-          this.isRgbActive = false;
-          this.isRgbConnecting = false;
-          this.rgbWebsocket = null;
-          // WebSocket关闭后重新检查设备状态
-          setTimeout(() => this.checkDeviceStatus(), 1000);
+        this.websocket.onerror = (error) => {
+          console.error('ZED WebSocket错误:', error);
+          this.cleanupWebSocket();
+          
+          // 如果重连尝试次数未超过最大值，尝试重连
+          if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.scheduleReconnect();
+          }
         };
       } catch (error) {
-        console.error('设置RGB WebSocket时出错:', error);
-        this.handleConnectionFailure('rgb');
-      }
-    },
-    
-    startDepthStream() {
-      // 防止重复连接
-      if (this.isDepthConnecting || this.isDepthActive || this.depthWebsocket) {
-        console.log('Depth流已连接或正在连接中，不重复连接');
-        return;
-      }
-      
-      this.isDepthConnecting = true;
-      this.consecutiveEmptyFrames.depth = 0;
-      
-      try {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.host || 'localhost:3000';
-        const wsUrl = `${protocol}//${host}/ws/zed/depth`;
+        console.error('创建WebSocket连接时出错:', error);
+        this.isConnecting = false;
         
-        console.log(`连接到Depth WebSocket: ${wsUrl}`);
-        this.depthWebsocket = new WebSocket(wsUrl);
-        
-        this.depthWebsocket.onopen = () => {
-          console.log('Depth WebSocket连接已建立');
-          this.isDepthConnecting = false;
-          this.reconnectAttempts.depth = 0;
-          // WebSocket连接成功时检查ZED相机状态
-          this.checkDeviceStatus();
-        };
-        
-        this.depthWebsocket.onmessage = (event) => {
-          // 检查数据大小，如果是空图像（小于100字节），可能是设备发送的心跳包
-          if (event.data.byteLength < 100) {
-            console.log('Received small Depth frame, might be heartbeat');
-            return;
-          }
-          
-          // 收到有效的视频帧，说明ZED相机物理连接正常
-          this.isZedConnected = true;
-          
-          // 只有当收到有效帧且大小正常时，才设置为活跃
-          if (event.data.byteLength > 1000) {
-            this.isDepthActive = true;
-            this.consecutiveEmptyFrames.depth = 0;
-          }
-          
-          // 将接收到的二进制数据转换为图像
-          const blob = new Blob([event.data], { type: 'image/jpeg' });
-          const url = URL.createObjectURL(blob);
-          
-          // 更新图像元素
-          if (this.$refs.depthElement) {
-            this.$refs.depthElement.src = url;
-            
-            // 图像加载后释放对象URL以避免内存泄漏
-            this.$refs.depthElement.onload = () => {
-              URL.revokeObjectURL(url);
-            };
-          }
-        };
-        
-        this.depthWebsocket.onerror = (error) => {
-          console.error('Depth WebSocket错误:', error);
-          this.handleConnectionFailure('depth');
-        };
-        
-        this.depthWebsocket.onclose = () => {
-          console.log('Depth WebSocket连接关闭');
-          this.isDepthActive = false;
-          this.isDepthConnecting = false;
-          this.depthWebsocket = null;
-          // WebSocket关闭后重新检查设备状态
-          setTimeout(() => this.checkDeviceStatus(), 1000);
-        };
-      } catch (error) {
-        console.error('设置Depth WebSocket时出错:', error);
-        this.handleConnectionFailure('depth');
-      }
-    },
-    
-    stopStream(type) {
-      console.log(`停止${type}流`);
-      if (type === 'rgb' && this.rgbWebsocket) {
-        console.log('关闭RGB WebSocket连接');
-        this.rgbWebsocket.onclose = null; // 防止触发onclose事件处理器
-        this.rgbWebsocket.close();
-        this.rgbWebsocket = null;
-        this.isRgbActive = false;
-        this.isRgbConnecting = false;
-        clearTimeout(this.reconnectTimers.rgb);
-      } else if (type === 'depth' && this.depthWebsocket) {
-        console.log('关闭Depth WebSocket连接');
-        this.depthWebsocket.onclose = null; // 防止触发onclose事件处理器
-        this.depthWebsocket.close();
-        this.depthWebsocket = null;
-        this.isDepthActive = false;
-        this.isDepthConnecting = false;
-        clearTimeout(this.reconnectTimers.depth);
-      }
-    },
-    
-    handleConnectionFailure(type) {
-      if (type === 'rgb') {
-        this.isRgbActive = false;
-        this.isRgbConnecting = false;
-        
-        if (this.rgbWebsocket) {
-          this.rgbWebsocket.close();
-          this.rgbWebsocket = null;
-        }
-      } else if (type === 'depth') {
-        this.isDepthActive = false;
-        this.isDepthConnecting = false;
-        
-        if (this.depthWebsocket) {
-          this.depthWebsocket.close();
-          this.depthWebsocket = null;
+        // 如果重连尝试次数未超过最大值，尝试重连
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.scheduleReconnect();
         }
       }
-      
-      // 连接失败后延迟检查设备状态
-      setTimeout(() => this.checkDeviceStatus(), 1000);
     },
     
-    stopAllStreams() {
-      console.log('停止所有ZED流');
-      this.stopStream('rgb');
-      this.stopStream('depth');
+    stopStream() {
+      this._isUserClosing = true;
+      this.cleanupWebSocket();
       
-      if (this.deviceCheckTimer) {
-        clearInterval(this.deviceCheckTimer);
-        this.deviceCheckTimer = null;
+      // 清除重连定时器
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
       }
+      
+      this.isStreamActive = false;
     },
     
-    // 尝试直接从后端获取ZED相机连接状态
-    checkZedConnectionStatus() {
-      // 这里可以调用一个专门用于检查ZED相机连接状态的API
-      // 如果后端没有提供这样的API，可以考虑添加一个
-      fetch('/api/stream_status')
-        .then(response => response.json())
-        .then(data => {
-          console.log('Checking ZED physical connection status:', data);
-          // 当后端日志有"已连接ZED客户端"时，应该将isZedConnected设为true
-          if (data && data.zed_connected === true) {
-            this.isZedConnected = true;
-            console.log('ZED camera is physically connected');
-          } else if (data && data.zed_connected === false) {
-            // 如果明确断开，更新状态
-            this.isZedConnected = false;
-            this.isRgbActive = false;
-            this.isDepthActive = false;
-            console.log('ZED camera is physically disconnected');
-          }
-        })
-        .catch(error => {
-          console.error('Failed to check ZED physical connection:', error);
-        });
+    cleanupWebSocket() {
+      if (this.websocket) {
+        // 如果WebSocket仍处于连接或正在连接状态，关闭它
+        if (this.websocket.readyState === WebSocket.OPEN || 
+            this.websocket.readyState === WebSocket.CONNECTING) {
+          this.websocket.close();
+        }
+        this.websocket = null;
+      }
+      this.isConnecting = false;
+    },
+    
+    scheduleReconnect() {
+      this.reconnectAttempts++;
+      const delay = Math.min(30000, Math.pow(2, this.reconnectAttempts) * 1000);
+      console.log(`计划 ${delay}ms 后尝试第 ${this.reconnectAttempts} 次重连ZED WebSocket`);
+      
+      this.reconnectTimer = setTimeout(() => {
+        console.log(`正在尝试第 ${this.reconnectAttempts} 次重连ZED WebSocket`);
+        this.startStream();
+      }, delay);
     }
-  },
-  created() {
-    console.log('ZedStream component created');
   },
   mounted() {
-    console.log('ZedStream component mounted');
+    console.log('ZedStream组件已挂载');
+    this._hasInitialized = true;
     
-    // 先检查ZED相机物理连接状态
+    // 启动设备状态检查定时器
+    this.deviceCheckTimer = setInterval(() => {
+      this.checkZedConnectionStatus();
+    }, 5000);
+    
+    // 初次检查设备状态
     this.checkZedConnectionStatus();
     
-    // 仅当组件首次挂载时自动连接，而不是每次切换时
-    if (!this._hasInitialized) {
-      // 自动连接默认的RGB流
-      setTimeout(() => {
-        this.startRgbStream();
-      }, 500);
-      
-      // 始终连接深度流，无论当前模式如何
-      setTimeout(() => {
-        this.startDepthStream();
-      }, 1000);
-      
-      this._hasInitialized = true;
-    }
+    // 初始启动流
+    this.startStream();
+  },
+  beforeDestroy() {
+    console.log('ZedStream组件即将销毁');
     
-    // 定期检查设备状态
-    this.deviceCheckTimer = setInterval(() => {
-      this.checkDeviceStatus();
-      
-      // 如果已经收到有效视频帧但isZedConnected仍为false，强制更新
-      if ((this.isRgbActive || this.isDepthActive) && !this.isZedConnected) {
-        console.log('Video streams active but ZED connection state is false, updating');
-        this.isZedConnected = true;
-      }
-      
-      // 确保深度流始终处于连接状态
-      if (!this.depthWebsocket && !this.isDepthConnecting) {
-        console.log('Depth stream not connected, attempting to connect');
-        this.startDepthStream();
-      }
-    }, 2000); // 每2秒检查一次，更频繁些以确保状态一致
-  },
-  beforeUnmount() {
-    console.log('ZedStream component unmounting, cleaning up');
-    this.stopAllStreams();
-  },
-  activated() {
-    // 当使用keep-alive时，组件被激活时调用
-    console.log('ZedStream component activated');
-    this.activateComponent();
-  },
-  deactivated() {
-    // 当使用keep-alive时，组件被缓存时调用
-    console.log('ZedStream component deactivated');
-    this.deactivateComponent();
+    // 清理所有资源
+    this.stopStream();
+    
+    if (this.deviceCheckTimer) {
+      clearInterval(this.deviceCheckTimer);
+      this.deviceCheckTimer = null;
+    }
   }
 }
 </script>
 
 <style scoped>
 .zed-stream {
+  position: relative;
   width: 100%;
   height: 100%;
-  position: relative;
   overflow: hidden;
-  background: #000;
-  border-radius: 10px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+  border-radius: 8px;
+  background-color: #1a1a1a;
 }
 
 .video-container {
   width: 100%;
   height: 100%;
   position: relative;
-  display: flex;
-  justify-content: center;
-  align-items: center;
 }
 
 .stream-wrapper {
   width: 100%;
   height: 100%;
-  position: relative;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 .video-feed {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  transform: scale(1.2);
+  object-fit: cover;
 }
 
-.connecting-overlay, .offline-overlay {
+.offline-overlay {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
   display: flex;
   justify-content: center;
   align-items: center;
-  background: rgba(0, 0, 0, 0.7);
-}
-
-.loader {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
-  border-radius: 50%;
-  border-top-color: #fff;
-  animation: spin 1s ease-in-out infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+  z-index: 10;
 }
 
 .offline-message {
-  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 16px;
-  letter-spacing: 1px;
+  color: #ff3b30;
+  font-size: 18px;
+  font-weight: 500;
+  text-align: center;
+  background-color: rgba(0, 0, 0, 0.6);
+  padding: 15px 25px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 59, 48, 0.3);
+}
+
+.connecting-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 5;
+}
+
+.loader {
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top: 4px solid #ffffff;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .mode-toggle {
   position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 15px;
+  right: 15px;
   display: flex;
-  gap: 10px;
+  gap: 8px;
   z-index: 20;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(10px);
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .toggle-btn {
-  min-width: 100px;
+  padding: 0 15px;
+  height: 36px;
+  border-radius: 18px;
+  font-size: 12px;
+  text-transform: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .info-overlay {
   position: absolute;
-  top: 20px;
-  left: 20px;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(10px);
-  padding: 10px 15px;
+  top: 15px;
+  left: 15px;
+  background-color: rgba(0, 0, 0, 0.5);
+  padding: 10px;
   border-radius: 8px;
+  z-index: 15;
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 12px;
-  z-index: 20;
-  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .info-item {
@@ -595,14 +453,30 @@ export default {
 
 .info-label {
   color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
 }
 
 .info-value {
-  color: rgba(255, 0, 0, 0.7);
+  color: #ff3b30;
+  font-size: 12px;
   font-weight: 500;
 }
 
 .info-value.online {
-  color: rgba(0, 255, 0, 0.7);
+  color: #4cd964;
+}
+
+.debug-overlay {
+  position: absolute;
+  bottom: 15px;
+  left: 15px;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 10px;
+  border-radius: 8px;
+  z-index: 15;
+  font-size: 12px;
+  max-width: 400px;
+  overflow: auto;
 }
 </style> 

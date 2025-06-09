@@ -1,8 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import MixerMonitor from '../views/MixerMonitor.vue'
-import SprayerMonitor from '../views/SprayerMonitor.vue'
+// import SprayerMonitor from '../views/SprayerMonitor.vue'
 import VideoMonitor from '../views/VideoMonitor.vue'
-// import SprayMonitor from '../views/SprayMonitor.vue'
+import SprayMonitor from '../views/SprayMonitor.vue'
 const routes = [
   // 默认路由重定向到搅拌监控
   { 
@@ -20,7 +20,7 @@ const routes = [
   // 喷射监控
   { 
     path: '/spray', 
-    component: SprayerMonitor, 
+    component: SprayMonitor, 
     name: 'spray' 
   },
   
