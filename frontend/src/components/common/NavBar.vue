@@ -22,6 +22,14 @@
           <v-icon size="small" class="mr-1">mdi-camera</v-icon>
           喷射监控
         </router-link>
+        <router-link 
+          :to="{ name: 'rtk' }" 
+          :class="{ 'active': currentRoute === 'rtk' }"
+          class="nav-link"
+        >
+          <v-icon size="small" class="mr-1">mdi-map-marker-path</v-icon>
+          RTK定位监控
+        </router-link>
       </div>
       <div class="system-status">
         <div class="status-indicator" :class="{ 'online': isSystemOnline }"></div>

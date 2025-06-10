@@ -1,0 +1,5 @@
+# RTK模拟器依赖
+# 基本依赖
+numpy>=1.19.0
+# 如果需要图形界面，需要tkinter
+# tkinter通常随Python安装，无需单独安装 

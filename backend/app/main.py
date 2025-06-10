@@ -3,15 +3,18 @@ import cv2
 import time
 import asyncio
 import datetime
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+import sys
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import threading
 import numpy as np
 from . import zed_server
 from app.esp32_controller import controller as esp32_controller
+from app.rtk_controller import controller as rtk_controller
 import logging
 import atexit
 import signal
+import json
 from fastapi.responses import StreamingResponse
 from app.video_streaming import VideoCamera
 from app.lift_controller import lift_car_controller
@@ -388,6 +391,10 @@ def cleanup_resources():
 def signal_handler(sig, frame):
     logger.info(f"主应用收到信号 {sig}，正在优雅关闭...")
     shutdown_event.set()
+    # 执行清理操作
+    cleanup_resources()
+    # 强制退出程序
+    sys.exit(0)
 
 # 注册信号处理和退出处理
 signal.signal(signal.SIGINT, signal_handler)
@@ -431,8 +438,206 @@ async def get_lift_status():
 
 @app.post("/api/lift/button/{button_id}")
 async def send_lift_command(button_id: int):
-    """发送命令到登高车控制系统"""
-    result = await lift_car_controller.send_command(button_id)
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result 
+    """发送提升小车控制命令"""
+    return await lift_car_controller.send_command(button_id)
+
+# RTK设备API路由
+@app.get("/api/rtk/devices")
+async def get_rtk_devices():
+    """获取所有RTK设备信息"""
+    return rtk_controller.get_devices()
+
+@app.get("/api/rtk/device/{device_id}")
+async def get_rtk_device(device_id: str):
+    """获取指定RTK设备信息"""
+    return rtk_controller.get_device_data(device_id)
+
+@app.post("/api/rtk/device/register")
+async def register_rtk_device(device_id: str, ip_address: str, name: str = None, device_info: str = None):
+    """注册新的RTK设备"""
+    return rtk_controller.register_device(device_id, ip_address, name, device_info)
+
+@app.post("/api/rtk/devices")
+async def create_rtk_device(request: Request):
+    """创建新的RTK设备（支持JSON body）"""
+    try:
+        data = await request.json()
+        
+        # 提取参数
+        device_id = data.get("device_id")
+        ip_address = data.get("ip_address")
+        name = data.get("name")
+        device_number = data.get("device_number")
+        is_base_station = data.get("is_base_station", False)
+        
+        # 验证必要参数
+        if not device_id or not ip_address:
+            raise HTTPException(status_code=400, detail="device_id and ip_address are required")
+        
+        # 构建设备信息
+        device_info = {
+            "deviceNumber": device_number,
+            "isBaseStation": is_base_station,
+            "showIn3D": data.get("show_in_3d", True)
+        }
+        device_info_str = json.dumps(device_info)
+        
+        # 调用控制器注册设备
+        result = rtk_controller.register_device(device_id, ip_address, name, device_info_str)
+        
+        if result.get("success"):
+            return {"success": True, "message": result.get("message", "设备注册成功")}
+        else:
+            raise HTTPException(status_code=400, detail=result.get("message", "设备注册失败"))
+        
+    except Exception as e:
+        logger.error(f"注册RTK设备失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/rtk/scan")
+async def scan_rtk_devices():
+    """扫描网络上的RTK设备"""
+    return rtk_controller.scan_for_devices()
+
+@app.put("/api/rtk/devices/{device_id}")
+async def update_rtk_device(device_id: str, request: Request):
+    """更新RTK设备（支持JSON body）"""
+    try:
+        data = await request.json()
+        
+        # 提取参数
+        ip_address = data.get("ip_address")
+        name = data.get("name")
+        device_number = data.get("device_number")
+        is_base_station = data.get("is_base_station", False)
+        
+        # 验证必要参数
+        if not ip_address:
+            raise HTTPException(status_code=400, detail="ip_address is required")
+        
+        # 先删除旧设备
+        rtk_controller.unregister_device(device_id)
+        
+        # 构建设备信息
+        device_info = {
+            "deviceNumber": device_number,
+            "isBaseStation": is_base_station,
+            "showIn3D": data.get("show_in_3d", True)
+        }
+        device_info_str = json.dumps(device_info)
+        
+        # 重新注册设备
+        result = rtk_controller.register_device(device_id, ip_address, name, device_info_str)
+        
+        if result.get("success"):
+            return {"success": True, "message": result.get("message", "设备更新成功")}
+        else:
+            raise HTTPException(status_code=400, detail=result.get("message", "设备更新失败"))
+        
+    except Exception as e:
+        logger.error(f"更新RTK设备失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/rtk/devices/{device_id}")
+async def delete_rtk_device(device_id: str):
+    """删除RTK设备"""
+    try:
+        result = rtk_controller.unregister_device(device_id)
+        
+        if result.get("success"):
+            return {"success": True, "message": result.get("message", "设备删除成功")}
+        else:
+            return {"success": False, "message": result.get("error", "设备删除失败")}
+        
+    except Exception as e:
+        logger.error(f"删除RTK设备失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/rtk/device/{device_id}")
+async def unregister_rtk_device(device_id: str):
+    """注销RTK设备"""
+    return rtk_controller.unregister_device(device_id)
+
+@app.post("/api/rtk/device/{device_id}/record/start")
+async def start_rtk_recording(device_id: str):
+    """开始记录RTK设备数据"""
+    return rtk_controller.start_recording(device_id)
+
+@app.post("/api/rtk/device/{device_id}/record/stop")
+async def stop_rtk_recording(device_id: str):
+    """停止记录RTK设备数据"""
+    return rtk_controller.stop_recording(device_id)
+
+@app.get("/api/rtk/device/{device_id}/records")
+async def get_rtk_records(device_id: str):
+    """获取RTK设备记录的数据"""
+    return rtk_controller.get_records(device_id)
+
+@app.delete("/api/rtk/device/{device_id}/records")
+async def clear_rtk_records(device_id: str):
+    """清除RTK设备记录的数据"""
+    return rtk_controller.clear_records(device_id)
+
+# 添加兼容性路由，匹配前端调用的路径
+@app.post("/api/rtk/devices/{device_id}/recording/{action}")
+async def toggle_rtk_recording(device_id: str, action: str):
+    """切换RTK设备记录状态（兼容性路由）"""
+    if action == "start":
+        return rtk_controller.start_recording(device_id)
+    elif action == "stop":
+        return rtk_controller.stop_recording(device_id)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action. Use 'start' or 'stop'")
+
+@app.delete("/api/rtk/devices/{device_id}/records")
+async def clear_rtk_records_compat(device_id: str):
+    """清除RTK设备记录的数据（兼容性路由）"""
+    return rtk_controller.clear_records(device_id)
+
+# 启动和停止RTK监听的API
+@app.post("/api/rtk/listen/start")
+async def start_rtk_listening():
+    """启动RTK UDP监听"""
+    return rtk_controller.start_listening()
+
+@app.post("/api/rtk/listen/stop")
+async def stop_rtk_listening():
+    """停止RTK UDP监听"""
+    return rtk_controller.stop_listening()
+
+# RTK WebSocket路由，用于实时推送RTK数据
+@app.websocket("/ws/rtk")
+async def rtk_websocket_endpoint(websocket: WebSocket):
+    """RTK数据WebSocket连接"""
+    await websocket.accept()
+    
+    # 启动RTK监听（如果尚未启动）
+    if not rtk_controller.running:
+        rtk_controller.start_listening()
+    
+    try:
+        # 开始发送数据
+        while True:
+            # 获取所有设备的最新数据
+            devices_data = rtk_controller.get_devices()
+            
+            # 发送数据到客户端
+            await websocket.send_json(devices_data)
+            
+            # 每100毫秒发送一次数据
+            await asyncio.sleep(0.1)
+    except WebSocketDisconnect:
+        logger.info("RTK WebSocket客户端断开连接")
+    except Exception as e:
+        logger.error(f"RTK WebSocket错误: {e}")
+
+# 启动应用时自动启动一些服务
+@app.on_event("startup")
+async def startup_event():
+    # 启动RTK监听服务
+    rtk_controller.start_listening()
+    logger.info("RTK监听服务已启动")
+    
+    # 注册信号处理器
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler) 

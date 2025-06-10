@@ -3,6 +3,8 @@ import MixerMonitor from '../views/MixerMonitor.vue'
 // import SprayerMonitor from '../views/SprayerMonitor.vue'
 import VideoMonitor from '../views/VideoMonitor.vue'
 import SprayMonitor from '../views/SprayMonitor.vue'
+import RtkMonitor from '../views/RtkMonitor.vue'
+
 const routes = [
   // 默认路由重定向到搅拌监控
   { 
@@ -22,6 +24,13 @@ const routes = [
     path: '/spray', 
     component: SprayMonitor, 
     name: 'spray' 
+  },
+  
+  // RTK设备监控
+  { 
+    path: '/rtk', 
+    component: RtkMonitor, 
+    name: 'rtk' 
   },
   
   // 保留旧的视频路由以向后兼容
