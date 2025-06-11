@@ -4,18 +4,19 @@ import time
 import asyncio
 import datetime
 import sys
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import threading
 import numpy as np
 from . import zed_server
 from app.esp32_controller import controller as esp32_controller
 from app.rtk_controller import controller as rtk_controller
+from app.model_manager import model_manager
 import logging
 import atexit
 import signal
 import json
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from app.video_streaming import VideoCamera
 from app.lift_controller import lift_car_controller
 
@@ -640,4 +641,49 @@ async def startup_event():
     
     # 注册信号处理器
     signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler) 
+    signal.signal(signal.SIGTERM, signal_handler)
+
+# 建筑模型管理API
+@app.post("/api/models/upload")
+async def upload_model(file: UploadFile, request: Request):
+    """上传建筑模型文件"""
+    # 从表单数据或JSON中获取元数据
+    metadata = {}
+    if request.headers.get("content-type", "").startswith("multipart/form-data"):
+        form_data = await request.form()
+        if "metadata" in form_data:
+            import json
+            metadata = json.loads(form_data["metadata"])
+    
+    return await model_manager.upload_model(file, metadata)
+
+@app.get("/api/models")
+async def get_models():
+    """获取所有建筑模型列表"""
+    return model_manager.get_models()
+
+@app.get("/api/models/{model_id}")
+async def get_model(model_id: str):
+    """获取指定建筑模型信息"""
+    model = model_manager.get_model(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="模型不存在")
+    return model
+
+@app.put("/api/models/{model_id}")
+async def update_model(model_id: str, request: Request):
+    """更新建筑模型信息"""
+    updates = await request.json()
+    return model_manager.update_model(model_id, updates)
+
+@app.delete("/api/models/{model_id}")
+async def delete_model(model_id: str):
+    """删除建筑模型"""
+    return model_manager.delete_model(model_id)
+
+@app.get("/api/models/{model_id}/file")
+async def get_model_file(model_id: str):
+    """获取建筑模型文件"""
+    from fastapi.responses import FileResponse
+    file_path = model_manager.get_model_file_path(model_id)
+    return FileResponse(file_path) 

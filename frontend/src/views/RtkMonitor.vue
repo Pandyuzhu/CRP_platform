@@ -143,6 +143,91 @@
             </div>
           </div>
         </div>
+
+        <!-- 建筑模型管理 -->
+        <div class="panel-section">
+          <h3 class="section-title">建筑模型管理</h3>
+          
+          <!-- 模型上传 -->
+          <div class="model-upload-section">
+            <el-upload
+              action="#"
+              :before-upload="handleModelUpload"
+              :show-file-list="false"
+              accept=".gltf,.glb,.obj,.stl"
+              :disabled="isUploadingModel"
+            >
+              <el-button type="primary" :loading="isUploadingModel">
+                <i class="el-icon-upload"></i>
+                {{ isUploadingModel ? '上传中...' : '上传模型' }}
+              </el-button>
+            </el-upload>
+            <div class="upload-tip">
+              支持格式：GLTF, GLB, OBJ, STL
+            </div>
+          </div>
+          
+          <!-- 模型显示控制 -->
+          <div class="model-controls">
+            <div class="control-item">
+              <el-switch 
+                v-model="showModels" 
+                active-text="显示模型" 
+                inactive-text="隐藏模型"
+                @change="updateModelVisibility"
+              />
+            </div>
+            
+            <div class="control-item">
+              <span class="control-label">透明度:</span>
+              <el-slider 
+                v-model="modelOpacity" 
+                :min="0" 
+                :max="1" 
+                :step="0.1"
+                @change="updateModelOpacity"
+              />
+            </div>
+            
+            <div class="control-item">
+              <span class="control-label">显示模式:</span>
+              <el-radio-group v-model="modelLayerMode" size="small" @change="updateModelLayerMode">
+                <el-radio-button value="overlay">叠加</el-radio-button>
+                <el-radio-button value="design">仅设计</el-radio-button>
+                <el-radio-button value="actual">仅实际</el-radio-button>
+              </el-radio-group>
+            </div>
+          </div>
+          
+          <!-- 已加载的模型列表 -->
+          <div class="loaded-models-list" v-if="buildingModels.length > 0">
+            <h4>已加载模型</h4>
+            <div v-for="model in buildingModels" :key="model.id" class="model-item">
+              <div class="model-info">
+                <span class="model-name">{{ model.name }}</span>
+                <span class="model-size">{{ model.format }}</span>
+              </div>
+              <div class="model-actions">
+                <el-button 
+                  size="small" 
+                  type="info"
+                  circle
+                  @click="editModel(model)"
+                >
+                  <i class="el-icon-edit"></i>
+                </el-button>
+                <el-button 
+                  size="small" 
+                  type="danger"
+                  circle
+                  @click="deleteModel(model.id)"
+                >
+                  <i class="el-icon-delete"></i>
+                </el-button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 右侧3D可视化 -->
@@ -216,6 +301,8 @@ import { ref, onMounted, onBeforeUnmount, computed, nextTick, markRaw } from 'vu
 import { ElMessage, ElMessageBox } from 'element-plus';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import axios from 'axios';
 import { apiBaseUrl } from '@/config';
 
@@ -227,6 +314,16 @@ const wsConnected = ref(false);
 const is3dViewReady = ref(false);
 const container3d = ref(null);
 const showGrid = ref(true);
+
+// 建筑模型状态
+const buildingModels = ref([]);
+const loadedModels = ref({});
+const gltfLoader = new GLTFLoader();
+const stlLoader = new STLLoader();
+const isUploadingModel = ref(false);
+const modelOpacity = ref(0.7);
+const showModels = ref(true);
+const modelLayerMode = ref('overlay'); // 'overlay', 'design', 'actual'
 
 // 场景状态
 const scene = ref(null);
@@ -278,7 +375,7 @@ function init3DScene() {
   
   // 创建场景
   scene.value = markRaw(new THREE.Scene());
-  scene.value.background = new THREE.Color(0x000000);
+  scene.value.background = new THREE.Color(0xe0e0e0);
   
   // 创建相机
   camera.value = markRaw(new THREE.PerspectiveCamera(
@@ -347,12 +444,15 @@ function init3DScene() {
   scene.value.add(nLabel);
   scene.value.add(uLabel);
   
-  // 添加光源
-  const ambientLight = markRaw(new THREE.AmbientLight(0x404040, 0.3));
+  // 添加光源（全局日光 + 环境光）
+  const hemiLight = markRaw(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2)); // sky, ground, intensity
+  scene.value.add(hemiLight);
+
+  const ambientLight = markRaw(new THREE.AmbientLight(0xffffff, 0.6));
   scene.value.add(ambientLight);
-  
-  const directionalLight = markRaw(new THREE.DirectionalLight(0xffffff, 0.8));
-  directionalLight.position.set(20, 20, 20);
+
+  const directionalLight = markRaw(new THREE.DirectionalLight(0xffffff, 1.2));
+  directionalLight.position.set(50, 80, 50); // simulate sun position
   directionalLight.castShadow = true;
   directionalLight.shadow.mapSize.width = 2048;
   directionalLight.shadow.mapSize.height = 2048;
@@ -816,39 +916,287 @@ async function toggleVisualization(deviceId, showIn3D) {
   }
 }
 
+// 建筑模型相关函数
+async function loadBuildingModels() {
+  try {
+    const response = await axios.get(`${apiBaseUrl}/api/models`);
+    buildingModels.value = response.data;
+    
+    // 加载每个模型到3D场景
+    for (const model of buildingModels.value) {
+      if (model.visible !== false) {
+        await loadModelToScene(model);
+      }
+    }
+  } catch (error) {
+    console.error('加载建筑模型列表失败:', error);
+  }
+}
 
+async function handleModelUpload(file) {
+  isUploadingModel.value = true;
+  
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // 添加默认元数据
+    const metadata = {
+      name: file.name.replace(/\.(gltf|glb|obj|stl)$/i, ''),
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      opacity: modelOpacity.value,
+      visible: true
+    };
+    formData.append('metadata', JSON.stringify(metadata));
+    
+    const response = await axios.post(`${apiBaseUrl}/api/models/upload`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    
+    if (response.data.success) {
+      ElMessage.success('模型上传成功');
+      
+      // 添加到模型列表
+      buildingModels.value.push(response.data.model_info);
+      
+      // 加载模型到3D场景
+      await loadModelToScene(response.data.model_info);
+    }
+  } catch (error) {
+    console.error('上传模型失败:', error);
+    ElMessage.error('上传模型失败');
+  } finally {
+    isUploadingModel.value = false;
+  }
+  
+  return false; // 阻止默认上传行为
+}
+
+async function loadModelToScene(modelInfo) {
+  if (!scene.value) return;
+  
+  try {
+    const modelUrl = `${apiBaseUrl}/api/models/${modelInfo.id}/file`;
+    const format = modelInfo.format.toLowerCase();
+    
+    if (format === '.stl') {
+      // 使用STL加载器
+      stlLoader.load(
+        modelUrl,
+        (geometry) => {
+          // STL文件只包含几何信息，需要创建材质
+          const material = new THREE.MeshPhongMaterial({
+            color: 0x00ff88,
+            specular: 0x111111,
+            shininess: 200,
+            transparent: true,
+            opacity: modelInfo.opacity || modelOpacity.value,
+            side: THREE.DoubleSide
+          });
+          
+          const mesh = new THREE.Mesh(geometry, material);
+          
+          // 设置位置
+          mesh.position.set(
+            modelInfo.position.x,
+            modelInfo.position.y,
+            modelInfo.position.z
+          );
+          
+          // 设置旋转
+          mesh.rotation.set(
+            modelInfo.rotation.x,
+            modelInfo.rotation.y,
+            modelInfo.rotation.z
+          );
+          
+          // 设置缩放
+          mesh.scale.set(
+            modelInfo.scale.x,
+            modelInfo.scale.y,
+            modelInfo.scale.z
+          );
+          
+          // 启用阴影
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          
+          // 计算边界框并居中（STL文件可能不在原点）
+          geometry.computeBoundingBox();
+          const boundingBox = geometry.boundingBox;
+          const center = new THREE.Vector3();
+          boundingBox.getCenter(center);
+          geometry.translate(-center.x, -center.y, -center.z);
+          
+          // 添加到场景
+          scene.value.add(mesh);
+          loadedModels.value[modelInfo.id] = mesh;
+          
+          console.log(`STL模型 ${modelInfo.name} 加载成功`);
+        },
+        (progress) => {
+          console.log(`加载进度: ${(progress.loaded / progress.total * 100).toFixed(2)}%`);
+        },
+        (error) => {
+          console.error(`加载STL模型失败: ${modelInfo.name}`, error);
+          ElMessage.error(`加载模型 ${modelInfo.name} 失败`);
+        }
+      );
+    } else {
+      // 使用GLTF加载器（支持.gltf, .glb, .obj）
+      gltfLoader.load(
+        modelUrl,
+        (gltf) => {
+          const model = gltf.scene;
+          
+          // 设置位置
+          model.position.set(
+            modelInfo.position.x,
+            modelInfo.position.y,
+            modelInfo.position.z
+          );
+          
+          // 设置旋转
+          model.rotation.set(
+            modelInfo.rotation.x,
+            modelInfo.rotation.y,
+            modelInfo.rotation.z
+          );
+          
+          // 设置缩放
+          model.scale.set(
+            modelInfo.scale.x,
+            modelInfo.scale.y,
+            modelInfo.scale.z
+          );
+          
+          // 设置透明度
+          model.traverse((child) => {
+            if (child.isMesh) {
+              child.material.transparent = true;
+              child.material.opacity = modelInfo.opacity || modelOpacity.value;
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+          });
+          
+          // 添加到场景
+          scene.value.add(model);
+          loadedModels.value[modelInfo.id] = model;
+          
+          console.log(`模型 ${modelInfo.name} 加载成功`);
+        },
+        (progress) => {
+          console.log(`加载进度: ${(progress.loaded / progress.total * 100).toFixed(2)}%`);
+        },
+        (error) => {
+          console.error(`加载模型失败: ${modelInfo.name}`, error);
+          ElMessage.error(`加载模型 ${modelInfo.name} 失败`);
+        }
+      );
+    }
+  } catch (error) {
+    console.error('加载模型到场景失败:', error);
+  }
+}
+
+async function deleteModel(modelId) {
+  try {
+    await ElMessageBox.confirm('确定要删除此模型吗？', '确认删除', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    });
+    
+    const response = await axios.delete(`${apiBaseUrl}/api/models/${modelId}`);
+    
+    if (response.data.success) {
+      // 从场景中移除模型
+      if (loadedModels.value[modelId]) {
+        scene.value.remove(loadedModels.value[modelId]);
+        delete loadedModels.value[modelId];
+      }
+      
+      // 从列表中移除
+      buildingModels.value = buildingModels.value.filter(m => m.id !== modelId);
+      
+      ElMessage.success('模型删除成功');
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('删除模型失败:', error);
+      ElMessage.error('删除模型失败');
+    }
+  }
+}
+
+function updateModelVisibility(visible) {
+  Object.values(loadedModels.value).forEach(model => {
+    model.visible = visible;
+  });
+}
+
+function updateModelOpacity(opacity) {
+  Object.values(loadedModels.value).forEach(model => {
+    if (model.isMesh) {
+      // STL模型是直接的Mesh对象
+      if (model.material) {
+        model.material.opacity = opacity;
+      }
+    } else {
+      // GLTF模型需要遍历子对象
+      model.traverse((child) => {
+        if (child.isMesh && child.material) {
+          child.material.opacity = opacity;
+        }
+      });
+    }
+  });
+}
+
+function updateModelLayerMode(mode) {
+  // 根据模式控制设备和模型的显示
+  if (mode === 'design') {
+    // 只显示设计模型
+    updateModelVisibility(true);
+    Object.values(deviceMeshes.value).forEach(mesh => {
+      mesh.visible = false;
+    });
+  } else if (mode === 'actual') {
+    // 只显示实际位置（RTK设备）
+    updateModelVisibility(false);
+    Object.values(deviceMeshes.value).forEach(mesh => {
+      mesh.visible = true;
+    });
+  } else {
+    // 叠加显示
+    updateModelVisibility(true);
+    Object.values(deviceMeshes.value).forEach(mesh => {
+      mesh.visible = true;
+    });
+  }
+}
+
+function editModel(model) {
+  // TODO: 实现模型编辑功能
+  ElMessage.info('模型编辑功能开发中...');
+}
 
 // 生命周期钩子
 onMounted(async () => {
-  await fetchRtkDevices();
+  // 初始化3D场景
+  await nextTick();
+  init3DScene();
   
-  nextTick(() => {
-    init3DScene();
-    
-    // 如果没有设备，添加测试数据
-    setTimeout(() => {
-      if (Object.keys(rtkDevices.value).length === 0) {
-        console.log('添加测试设备数据');
-        rtkDevices.value = {
-          'test_device': {
-            id: 'test_device',
-            name: '测试设备',
-            ip: '192.168.1.100',
-            connected: true,
-            isBaseStation: false,
-            showIn3D: true,
-            data: {
-              e: 5.0,
-              n: 3.0,
-              u: 1.0,
-              timestamp: Date.now()
-            }
-          }
-        };
-        updateDevicesIn3D();
-      }
-    }, 3000);
-  });
+  // 加载建筑模型
+  await loadBuildingModels();
+  
+  // 连接WebSocket
+  await fetchRtkDevices();
   
   refreshInterval.value = setInterval(fetchRtkDevices, 2000);
   
@@ -1186,8 +1534,6 @@ onBeforeUnmount(() => {
   text-shadow: 0 0 10px #ffffff;
 }
 
-
-
 .three-container {
   flex: 1;
   border: 1px solid rgba(255, 255, 255, 0.3);
@@ -1195,8 +1541,6 @@ onBeforeUnmount(() => {
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(255, 255, 255, 0.1);
 }
-
-
 
 :deep(.config-dialog) {
   background: rgba(240, 240, 240, 0.98);
@@ -1272,5 +1616,119 @@ onBeforeUnmount(() => {
 
 .registered-devices::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.5);
+}
+
+/* 建筑模型管理样式 */
+.model-upload-section {
+  margin-bottom: 1rem;
+  text-align: center;
+  
+  .upload-tip {
+    margin-top: 0.5rem;
+    font-size: 12px;
+    color: #888;
+  }
+}
+
+.model-controls {
+  margin: 1rem 0;
+  
+  .control-item {
+    margin-bottom: 1rem;
+    
+    .control-label {
+      display: inline-block;
+      width: 80px;
+      color: #888;
+      font-size: 14px;
+      margin-right: 0.5rem;
+    }
+    
+    .el-slider {
+      width: calc(100% - 100px);
+      display: inline-block;
+      vertical-align: middle;
+    }
+  }
+}
+
+.loaded-models-list {
+  margin-top: 1rem;
+  
+  h4 {
+    color: #e0e0e0;
+    margin-bottom: 0.5rem;
+    font-size: 14px;
+  }
+  
+  .model-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.3s;
+    
+    &:hover {
+      background: rgba(0, 0, 0, 0.5);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+    
+    .model-info {
+      .model-name {
+        color: #e0e0e0;
+        font-size: 14px;
+        margin-right: 0.5rem;
+      }
+      
+      .model-size {
+        color: #888;
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+    }
+    
+    .model-actions {
+      display: flex;
+      gap: 0.5rem;
+      
+      .el-button {
+        padding: 4px;
+        font-size: 12px;
+      }
+    }
+  }
+}
+
+/* 修改Element Plus组件在暗色主题下的样式 */
+:deep(.el-radio-button__inner) {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #e0e0e0;
+  
+  &:hover {
+    color: #00ff88;
+  }
+}
+
+:deep(.el-radio-button__orig-radio:checked + .el-radio-button__inner) {
+  background: rgba(0, 255, 136, 0.2);
+  border-color: #00ff88;
+  color: #00ff88;
+}
+
+:deep(.el-slider__runway) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+:deep(.el-slider__bar) {
+  background: #00ff88;
+}
+
+:deep(.el-slider__button) {
+  border-color: #00ff88;
 }
 </style>

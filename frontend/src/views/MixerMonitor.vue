@@ -44,9 +44,10 @@
             </div>
           </div>
           <div class="control-buttons">
+            <!-- 第一行：正转 / 反转 -->
             <div class="control-row">
               <v-btn
-                v-for="button in sprayerButtons"
+                v-for="button in sprayerButtons.filter(b => !b.name.includes('停止'))"
                 :key="button.id"
                 :color="button.action === '启动' ? 'success' : 'error'"
                 :variant="button.status ? 'flat' : 'outlined'"
@@ -54,7 +55,21 @@
                 @click="sendCommand('board1', button.id)"
               >
                 <v-icon class="mr-2">{{ button.action === '启动' ? 'mdi-play' : 'mdi-stop' }}</v-icon>
-                {{ button.name }}
+                {{ getSprayerButtonLabel(button) }}
+              </v-btn>
+            </div>
+            <!-- 第二行：停止（单独一键，拉宽） -->
+            <div class="control-row single-btn-row">
+              <v-btn
+                v-for="button in sprayerButtons.filter(b => b.name.includes('停止'))"
+                :key="button.id"
+                color="error"
+                :variant="button.status ? 'flat' : 'outlined'"
+                class="control-btn wide-btn"
+                @click="sendCommand('board1', button.id)"
+              >
+                <v-icon class="mr-2">mdi-stop</v-icon>
+                {{ getSprayerButtonLabel(button) }}
               </v-btn>
             </div>
           </div>
@@ -395,7 +410,14 @@ export default {
           button.name = nozzleButtonNames[button.id];
         }
       });
-    }
+    },
+    // 根据按钮名称返回在界面上显示的名称
+    getSprayerButtonLabel(button) {
+      if (button.name === '喷浆启动') {
+        return '喷浆正转';
+      }
+      return button.name;
+    },
   },
   created() {
     console.log('MixerMonitor component created');
@@ -568,5 +590,11 @@ export default {
   .info-content {
     grid-template-columns: 1fr;
   }
+}
+
+/* 喷射机停止按钮宽度增加 */
+.single-btn-row .wide-btn {
+  flex: 2;
+  min-width: 200px;
 }
 </style> 
