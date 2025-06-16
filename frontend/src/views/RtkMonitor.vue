@@ -70,8 +70,11 @@
           <div class="registered-devices">
             <div v-for="device in Object.values(rtkDevices)" :key="device.id" 
                  class="registered-device" 
-                 :class="{ active: device.connected }"
-                 @click="editDevice(device)">
+                 :class="{ 
+                   active: device.connected,
+                   'rtk-selectable': addingPointPair && addPointPairStep === 2
+                 }"
+                 @click="handleDeviceClick(device)">
               <div class="device-header">
                 <div class="device-name">{{ device.name || device.id }}</div>
                 <div class="device-status" :class="device.connected ? 'online' : 'offline'">
@@ -228,6 +231,310 @@
             </div>
           </div>
         </div>
+
+        <!-- 两阶段配准控制面板 -->
+        <div class="panel-section">
+          <h3 class="section-title">模型配准</h3>
+          
+          <!-- 阶段1：基准点配准 -->
+          <div class="alignment-stage">
+            <h4 class="stage-title">
+              <i class="el-icon-location"></i>
+              阶段1: 基准点配准
+              <span v-if="alignmentManager.stage1Complete" class="status-badge success">✓</span>
+            </h4>
+            
+            <!-- BIM基准点设置 -->
+            <div class="base-point-section">
+              <div class="section-header">
+                <span class="section-label">BIM基准点</span>
+                <el-switch 
+                  v-model="vertexSelectionMode" 
+                  size="small"
+                  active-text="顶点选择" 
+                  @change="toggleVertexSelection"
+                />
+              </div>
+              
+              <div v-if="vertexSelectionMode" class="vertex-controls">
+                <div class="control-item">
+                  <span class="control-label">顶点密度:</span>
+                  <el-radio-group v-model="vertexDensity" size="small" @change="updateVertexDisplay">
+                    <el-radio-button value="low">低</el-radio-button>
+                    <el-radio-button value="medium">中</el-radio-button>
+                    <el-radio-button value="high">高</el-radio-button>
+                  </el-radio-group>
+                </div>
+              </div>
+              
+              <div v-if="alignmentManager.bimBasePoint" class="base-point-info">
+                <div class="info-item">
+                  <span class="info-label">基准点坐标:</span>
+                  <span class="info-value">
+                    ({{ alignmentManager.bimBasePoint.x.toFixed(3) }}, 
+                     {{ alignmentManager.bimBasePoint.y.toFixed(3) }}, 
+                     {{ alignmentManager.bimBasePoint.z.toFixed(3) }})
+                  </span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">状态:</span>
+                  <span class="info-value success">已对齐到原点</span>
+                </div>
+              </div>
+            </div>
+            
+            <!-- RTK基准点设置 -->
+            <div class="base-point-section">
+              <div class="section-header">
+                <span class="section-label">RTK基准点</span>
+              </div>
+              
+              <div class="rtk-base-controls">
+                <el-select 
+                  v-model="selectedRtkBaseDevice" 
+                  placeholder="选择RTK基准设备"
+                  size="small"
+                  @change="setRtkBasePoint"
+                >
+                  <el-option
+                    v-for="device in availableRtkDevices"
+                    :key="device.id"
+                    :label="device.name || device.id"
+                    :value="device.id"
+                  >
+                    <span>{{ device.name || device.id }}</span>
+                    <span style="float: right; color: #8492a6; font-size: 13px">
+                      {{ device.connected ? '在线' : '离线' }}
+                    </span>
+                  </el-option>
+                </el-select>
+              </div>
+              
+              <div v-if="alignmentManager.rtkBasePoint" class="base-point-info">
+                <div class="info-item">
+                  <span class="info-label">基准设备:</span>
+                  <span class="info-value">{{ alignmentManager.rtkBasePoint.deviceId }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">原始坐标:</span>
+                  <span class="info-value">
+                    E:{{ alignmentManager.rtkBasePoint.originalCoords.e.toFixed(3) }}
+                    N:{{ alignmentManager.rtkBasePoint.originalCoords.n.toFixed(3) }}
+                    U:{{ alignmentManager.rtkBasePoint.originalCoords.u.toFixed(3) }}
+                  </span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">状态:</span>
+                  <span class="info-value success">坐标系已重置</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="stage-actions">
+              <el-button 
+                type="primary" 
+                size="small"
+                @click="completeStage1"
+                :disabled="!canCompleteStage1"
+              >
+                完成基准点配准
+              </el-button>
+              <el-button 
+                size="small"
+                @click="resetStage1"
+                :disabled="!alignmentManager.stage1Complete"
+              >
+                重置
+              </el-button>
+            </div>
+          </div>
+          
+          <!-- 阶段2：精确配准 -->
+          <div class="alignment-stage" :class="{ disabled: !alignmentManager.stage1Complete }">
+            <h4 class="stage-title">
+              <i class="el-icon-s-grid"></i>
+              阶段2: 精确配准 (Kabsch算法)
+              <span v-if="alignmentManager.stage2Complete" class="status-badge success">✓</span>
+              <span v-else-if="!alignmentManager.stage1Complete" class="status-badge disabled">需要完成阶段1</span>
+            </h4>
+            
+            <!-- 特征点管理 -->
+            <div class="feature-points-section">
+              <div class="section-header">
+                <span class="section-label">特征点对 ({{ pointPairs.length }}/{{ minPointPairs }})</span>
+                <el-button 
+                  size="small" 
+                  type="success"
+                  @click="startAddingPointPair"
+                  :disabled="!alignmentManager.stage1Complete || addingPointPair"
+                >
+                  <i class="el-icon-plus"></i>
+                  添加点对
+                </el-button>
+              </div>
+              
+              <div v-if="addingPointPair" class="adding-point-pair">
+                <div class="add-point-step">
+                  <span class="step-label">步骤 {{ addPointPairStep }}/2:</span>
+                  <span class="step-desc">
+                    {{ addPointPairStep === 1 ? '点击BIM模型上的特征点' : '选择对应的RTK点' }}
+                  </span>
+                </div>
+                <el-button size="small" @click="cancelAddingPointPair">取消</el-button>
+              </div>
+              
+              <!-- 点对列表 -->
+              <div class="point-pairs-list">
+                <div v-for="(pair, index) in pointPairs" :key="pair.id" class="point-pair-item">
+                  <div class="pair-header">
+                    <span class="pair-name">{{ pair.name || `点对${index + 1}` }}</span>
+                    <div class="pair-actions">
+                      <el-button size="mini" type="text" @click="editPointPair(pair)">
+                        <i class="el-icon-edit"></i>
+                      </el-button>
+                      <el-button size="mini" type="text" @click="deletePointPair(pair.id)">
+                        <i class="el-icon-delete"></i>
+                      </el-button>
+                    </div>
+                  </div>
+                  <div class="pair-coords">
+                    <div class="coord-item">
+                      <span class="coord-label">BIM:</span>
+                      <span class="coord-value">
+                        ({{ pair.bimPoint.x.toFixed(2) }}, {{ pair.bimPoint.y.toFixed(2) }}, {{ pair.bimPoint.z.toFixed(2) }})
+                      </span>
+                    </div>
+                    <div class="coord-item">
+                      <span class="coord-label">RTK:</span>
+                      <span class="coord-value">
+                        ({{ pair.rtkPoint.x.toFixed(2) }}, {{ pair.rtkPoint.y.toFixed(2) }}, {{ pair.rtkPoint.z.toFixed(2) }})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div v-if="pointPairs.length < minPointPairs" class="point-pairs-hint">
+                <i class="el-icon-info"></i>
+                至少需要 {{ minPointPairs }} 个点对进行精确配准
+              </div>
+            </div>
+            
+            <!-- 配准控制 -->
+            <div class="alignment-controls">
+              <el-button 
+                type="primary" 
+                size="small"
+                @click="performKabschAlignment"
+                :disabled="!canPerformKabsch"
+                :loading="performingAlignment"
+              >
+                {{ performingAlignment ? '配准中...' : '执行精确配准' }}
+              </el-button>
+              <el-button 
+                size="small"
+                @click="previewAlignment"
+                :disabled="!canPerformKabsch"
+              >
+                预览配准
+              </el-button>
+              <el-button 
+                size="small"
+                @click="resetStage2"
+                :disabled="!alignmentManager.stage2Complete"
+              >
+                重置配准
+              </el-button>
+            </div>
+            
+            <!-- 配准结果 -->
+            <div v-if="alignmentManager.alignmentError !== null" class="alignment-results">
+              <div class="result-item">
+                <span class="result-label">RMS误差:</span>
+                <span class="result-value" :class="getErrorClass(alignmentManager.alignmentError.rms)">
+                  {{ alignmentManager.alignmentError.rms.toFixed(4) }}m
+                </span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">最大误差:</span>
+                <span class="result-value" :class="getErrorClass(alignmentManager.alignmentError.max)">
+                  {{ alignmentManager.alignmentError.max.toFixed(4) }}m
+                </span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">平均误差:</span>
+                <span class="result-value" :class="getErrorClass(alignmentManager.alignmentError.mean)">
+                  {{ alignmentManager.alignmentError.mean.toFixed(4) }}m
+                </span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">标准差:</span>
+                <span class="result-value">{{ alignmentManager.alignmentError.std.toFixed(4) }}m</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">旋转角度:</span>
+                <span class="result-value">{{ alignmentManager.alignmentError.rotation.toFixed(2) }}°</span>
+              </div>
+              
+              <!-- 质量评估 -->
+              <div v-if="alignmentManager.qualityAssessment" class="quality-assessment">
+                <div class="quality-score">
+                  <span class="score-label">配准质量评分:</span>
+                  <span class="score-value" :class="getQualityScoreClass(alignmentManager.qualityAssessment.score)">
+                    {{ alignmentManager.qualityAssessment.score }}/100
+                  </span>
+                </div>
+                <div v-if="alignmentManager.qualityAssessment.recommendations.length > 0" class="recommendations">
+                  <div class="recommendations-title">改进建议:</div>
+                  <ul class="recommendations-list">
+                    <li v-for="(rec, index) in alignmentManager.qualityAssessment.recommendations" :key="index">
+                      {{ rec }}
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div class="result-actions">
+                <el-button size="small" type="info" @click="showDetailedReport">
+                  详细报告
+                </el-button>
+                <el-button size="small" type="success" @click="showErrorDistribution">
+                  误差分布
+                </el-button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 配准状态总览 -->
+          <div class="alignment-overview">
+            <div class="overview-item">
+              <span class="overview-label">阶段1:</span>
+              <span class="overview-status" :class="{ success: alignmentManager.stage1Complete }">
+                {{ alignmentManager.stage1Complete ? '✓ 基准点已对齐' : '○ 待完成' }}
+              </span>
+            </div>
+            <div class="overview-item">
+              <span class="overview-label">阶段2:</span>
+              <span class="overview-status" :class="{ success: alignmentManager.stage2Complete }">
+                {{ alignmentManager.stage2Complete ? '✓ 精配准完成' : '○ 待完成' }}
+              </span>
+            </div>
+            <div v-if="alignmentManager.stage2Complete" class="overview-item">
+              <span class="overview-label">总体精度:</span>
+              <span class="overview-status" :class="getAccuracyClass()">
+                {{ getAccuracyText() }}
+              </span>
+            </div>
+            <el-button 
+              v-if="alignmentManager.stage2Complete"
+              size="small" 
+              type="success"
+              @click="exportAlignmentReport"
+            >
+              导出配准报告
+            </el-button>
+          </div>
+        </div>
       </div>
 
       <!-- 右侧3D可视化 -->
@@ -305,6 +612,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import axios from 'axios';
 import { apiBaseUrl } from '@/config';
+import { calculateKabschAlignment, assessAlignmentQuality } from '@/utils/kabsch';
 
 // 数据状态
 const rtkDevices = ref({});
@@ -368,6 +676,49 @@ const configRules = {
 
 // 刷新间隔
 const refreshInterval = ref(null);
+
+// 两阶段配准系统
+const alignmentManager = ref({
+  stage1Complete: false,
+  stage2Complete: false,
+  bimBasePoint: null,
+  rtkBasePoint: null,
+  stage1Transform: new THREE.Matrix4(),
+  kabschTransform: new THREE.Matrix4(),
+  finalTransform: new THREE.Matrix4(),
+  alignmentError: null,
+  qualityAssessment: null
+});
+
+// 顶点选择相关
+const vertexSelectionMode = ref(false);
+const vertexDensity = ref('medium');
+const modelVertices = ref([]);
+const vertexMeshes = ref([]);
+const highlightedVertex = ref(null);
+
+// RTK基准点选择
+const selectedRtkBaseDevice = ref(null);
+const availableRtkDevices = computed(() => {
+  return Object.values(rtkDevices.value).filter(device => !device.isBaseStation);
+});
+
+// 阶段2：特征点对管理
+const pointPairs = ref([]);
+const minPointPairs = ref(3);
+const addingPointPair = ref(false);
+const addPointPairStep = ref(1);
+const currentPointPair = ref(null);
+const performingAlignment = ref(false);
+
+// 计算属性
+const canCompleteStage1 = computed(() => {
+  return alignmentManager.value.bimBasePoint && alignmentManager.value.rtkBasePoint;
+});
+
+const canPerformKabsch = computed(() => {
+  return alignmentManager.value.stage1Complete && pointPairs.value.length >= minPointPairs.value;
+});
 
 // 初始化3D场景
 function init3DScene() {
@@ -1186,6 +1537,643 @@ function editModel(model) {
   ElMessage.info('模型编辑功能开发中...');
 }
 
+// ==================== 两阶段配准系统 ====================
+
+// 阶段1：基准点配准功能
+
+// 切换顶点选择模式
+function toggleVertexSelection(enabled) {
+  if (enabled) {
+    extractModelVertices();
+    showVertices();
+    // 添加鼠标移动监听器用于顶点高亮
+    renderer.value.domElement.addEventListener('mousemove', onVertexHover);
+    renderer.value.domElement.addEventListener('click', onVertexClick);
+  } else {
+    hideVertices();
+    // 移除监听器
+    renderer.value.domElement.removeEventListener('mousemove', onVertexHover);
+    renderer.value.domElement.removeEventListener('click', onVertexClick);
+  }
+}
+
+// 从模型中提取顶点
+function extractModelVertices() {
+  modelVertices.value = [];
+  
+  Object.values(loadedModels.value).forEach(model => {
+    const vertices = [];
+    
+    model.traverse((child) => {
+      if (child.isMesh && child.geometry) {
+        const positions = child.geometry.attributes.position;
+        if (positions) {
+          // 根据密度设置采样间隔
+          const densityMap = { low: 10, medium: 5, high: 2 };
+          const step = densityMap[vertexDensity.value] || 5;
+          
+          for (let i = 0; i < positions.count; i += step) {
+            const vertex = new THREE.Vector3();
+            vertex.fromBufferAttribute(positions, i);
+            
+            // 转换到世界坐标
+            child.localToWorld(vertex);
+            vertices.push(vertex);
+          }
+        }
+      }
+    });
+    
+    modelVertices.value.push(...vertices);
+  });
+  
+  console.log(`提取了 ${modelVertices.value.length} 个顶点`);
+}
+
+// 显示顶点
+function showVertices() {
+  hideVertices(); // 先清除之前的顶点
+  
+  const geometry = new THREE.SphereGeometry(0.05, 8, 8);
+  const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.6 });
+  
+  modelVertices.value.forEach(vertex => {
+    const mesh = markRaw(new THREE.Mesh(geometry, material));
+    mesh.position.copy(vertex);
+    mesh.userData.isVertex = true;
+    mesh.userData.originalPosition = vertex.clone();
+    scene.value.add(mesh);
+    vertexMeshes.value.push(mesh);
+  });
+}
+
+// 隐藏顶点
+function hideVertices() {
+  vertexMeshes.value.forEach(mesh => {
+    scene.value.remove(mesh);
+  });
+  vertexMeshes.value = [];
+  
+  if (highlightedVertex.value) {
+    scene.value.remove(highlightedVertex.value);
+    highlightedVertex.value = null;
+  }
+}
+
+// 更新顶点显示密度
+function updateVertexDisplay() {
+  if (vertexSelectionMode.value) {
+    extractModelVertices();
+    showVertices();
+  }
+}
+
+// 顶点悬停高亮
+function onVertexHover(event) {
+  if (!vertexSelectionMode.value) return;
+  
+  const rect = renderer.value.domElement.getBoundingClientRect();
+  const mouse = new THREE.Vector2();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(mouse, camera.value);
+  
+  const intersects = raycaster.intersectObjects(vertexMeshes.value);
+  
+  // 移除之前的高亮
+  if (highlightedVertex.value) {
+    scene.value.remove(highlightedVertex.value);
+    highlightedVertex.value = null;
+  }
+  
+  if (intersects.length > 0) {
+    const vertex = intersects[0].object;
+    
+    // 创建高亮显示
+    const highlightGeometry = new THREE.SphereGeometry(0.08, 8, 8);
+    const highlightMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+    highlightedVertex.value = markRaw(new THREE.Mesh(highlightGeometry, highlightMaterial));
+    highlightedVertex.value.position.copy(vertex.position);
+    scene.value.add(highlightedVertex.value);
+    
+    // 改变鼠标样式
+    renderer.value.domElement.style.cursor = 'pointer';
+  } else {
+    renderer.value.domElement.style.cursor = 'default';
+  }
+}
+
+// 顶点点击选择
+function onVertexClick(event) {
+  if (!vertexSelectionMode.value) return;
+  
+  const rect = renderer.value.domElement.getBoundingClientRect();
+  const mouse = new THREE.Vector2();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(mouse, camera.value);
+  
+  const intersects = raycaster.intersectObjects(vertexMeshes.value);
+  
+  if (intersects.length > 0) {
+    const selectedVertex = intersects[0].object.userData.originalPosition;
+    
+    if (addingPointPair.value && addPointPairStep.value === 1) {
+      // 阶段2：添加特征点对的第一步
+      currentPointPair.value = {
+        bimPoint: selectedVertex.clone(),
+        rtkPoint: null
+      };
+      addPointPairStep.value = 2;
+      ElMessage.success('BIM点已选择，请选择对应的RTK点');
+    } else {
+      // 阶段1：设置BIM基准点
+      setBimBasePoint(selectedVertex);
+    }
+  }
+}
+
+// 设置BIM基准点
+function setBimBasePoint(vertex) {
+  alignmentManager.value.bimBasePoint = vertex.clone();
+  
+  // 计算平移向量（将基准点移动到原点）
+  const translation = new THREE.Vector3().subVectors(new THREE.Vector3(0, 0, 0), vertex);
+  alignmentManager.value.stage1Transform.makeTranslation(translation.x, translation.y, translation.z);
+  
+  // 应用变换到所有BIM模型
+  Object.values(loadedModels.value).forEach(model => {
+    model.applyMatrix4(alignmentManager.value.stage1Transform);
+  });
+  
+  // 更新顶点位置
+  if (vertexSelectionMode.value) {
+    updateVertexDisplay();
+  }
+  
+  ElMessage.success('BIM基准点已设置并对齐到原点');
+  console.log('BIM基准点已设置:', vertex);
+}
+
+// 设置RTK基准点
+function setRtkBasePoint(deviceId) {
+  const device = rtkDevices.value[deviceId];
+  if (!device || !device.data) {
+    ElMessage.error('选择的设备无数据');
+    return;
+  }
+  
+  alignmentManager.value.rtkBasePoint = {
+    deviceId: deviceId,
+    originalCoords: {
+      e: device.data.e,
+      n: device.data.n,
+      u: device.data.u
+    },
+    timestamp: Date.now()
+  };
+  
+  // 重新计算所有RTK点的世界坐标
+  updateAllRtkWorldCoords();
+  
+  ElMessage.success('RTK基准点已设置');
+  console.log('RTK基准点已设置:', alignmentManager.value.rtkBasePoint);
+}
+
+// 更新所有RTK点的世界坐标
+function updateAllRtkWorldCoords() {
+  if (!alignmentManager.value.rtkBasePoint) return;
+  
+  Object.values(rtkDevices.value).forEach(device => {
+    if (device.data) {
+      // 计算相对于基准点的偏移
+      const offset = {
+        e: device.data.e - alignmentManager.value.rtkBasePoint.originalCoords.e,
+        n: device.data.n - alignmentManager.value.rtkBasePoint.originalCoords.n,
+        u: device.data.u - alignmentManager.value.rtkBasePoint.originalCoords.u
+      };
+      
+      // 转换为世界坐标（RTK基准点对应世界原点）
+      device.worldCoords = {
+        x: offset.e,
+        y: offset.u,
+        z: offset.n
+      };
+    }
+  });
+  
+  // 更新3D显示
+  updateDevicesIn3D();
+}
+
+// 完成阶段1配准
+function completeStage1() {
+  if (!canCompleteStage1.value) {
+    ElMessage.warning('请先设置BIM基准点和RTK基准点');
+    return;
+  }
+  
+  alignmentManager.value.stage1Complete = true;
+  
+  // 关闭顶点选择模式
+  vertexSelectionMode.value = false;
+  toggleVertexSelection(false);
+  
+  ElMessage.success('阶段1配准完成！可以开始精确配准');
+}
+
+// 重置阶段1
+function resetStage1() {
+  // 恢复模型原始位置
+  if (alignmentManager.value.stage1Transform) {
+    const inverseTransform = alignmentManager.value.stage1Transform.clone().invert();
+    Object.values(loadedModels.value).forEach(model => {
+      model.applyMatrix4(inverseTransform);
+    });
+  }
+  
+  alignmentManager.value.stage1Complete = false;
+  alignmentManager.value.bimBasePoint = null;
+  alignmentManager.value.rtkBasePoint = null;
+  alignmentManager.value.stage1Transform.identity();
+  selectedRtkBaseDevice.value = null;
+  
+  // 重置RTK坐标
+  Object.values(rtkDevices.value).forEach(device => {
+    delete device.worldCoords;
+  });
+  
+  updateDevicesIn3D();
+  ElMessage.info('阶段1已重置');
+}
+
+// 阶段2：精确配准功能
+
+// 开始添加点对
+function startAddingPointPair() {
+  addingPointPair.value = true;
+  addPointPairStep.value = 1;
+  currentPointPair.value = null;
+  
+  // 启用顶点选择模式
+  if (!vertexSelectionMode.value) {
+    vertexSelectionMode.value = true;
+    toggleVertexSelection(true);
+  }
+  
+  ElMessage.info('请点击BIM模型上的特征点');
+}
+
+// 取消添加点对
+function cancelAddingPointPair() {
+  addingPointPair.value = false;
+  addPointPairStep.value = 1;
+  currentPointPair.value = null;
+  ElMessage.info('已取消添加点对');
+}
+
+// 选择RTK点（用于点对的第二步）
+function selectRtkPointForPair(deviceId) {
+  if (!addingPointPair.value || addPointPairStep.value !== 2) return;
+  
+  const device = rtkDevices.value[deviceId];
+  if (!device || !device.worldCoords) {
+    ElMessage.error('选择的RTK设备无世界坐标数据');
+    return;
+  }
+  
+  currentPointPair.value.rtkPoint = new THREE.Vector3(
+    device.worldCoords.x,
+    device.worldCoords.y,
+    device.worldCoords.z
+  );
+  
+  // 添加到点对列表
+  const pointPair = {
+    id: Date.now(),
+    name: `点对${pointPairs.value.length + 1}`,
+    bimPoint: currentPointPair.value.bimPoint,
+    rtkPoint: currentPointPair.value.rtkPoint,
+    deviceId: deviceId
+  };
+  
+  pointPairs.value.push(pointPair);
+  
+  // 重置状态
+  addingPointPair.value = false;
+  addPointPairStep.value = 1;
+  currentPointPair.value = null;
+  
+  ElMessage.success(`点对已添加 (${pointPairs.value.length}/${minPointPairs.value})`);
+}
+
+// 删除点对
+function deletePointPair(pairId) {
+  pointPairs.value = pointPairs.value.filter(pair => pair.id !== pairId);
+  ElMessage.info('点对已删除');
+}
+
+// 编辑点对
+function editPointPair(pair) {
+  ElMessage.info('点对编辑功能开发中...');
+}
+
+// 执行Kabsch配准
+async function performKabschAlignment() {
+  if (!canPerformKabsch.value) {
+    ElMessage.warning('需要至少3个点对才能进行精确配准');
+    return;
+  }
+  
+  performingAlignment.value = true;
+  
+  try {
+    // 提取BIM和RTK点坐标
+    const bimPoints = pointPairs.value.map(pair => pair.bimPoint);
+    const rtkPoints = pointPairs.value.map(pair => pair.rtkPoint);
+    
+    console.log('开始Kabsch配准...');
+    console.log('BIM点数:', bimPoints.length);
+    console.log('RTK点数:', rtkPoints.length);
+    
+    // 执行Kabsch算法
+    const kabschResult = calculateKabschAlignment(bimPoints, rtkPoints);
+    
+    console.log('Kabsch配准结果:', kabschResult);
+    
+    // 保存变换矩阵和误差统计
+    alignmentManager.value.kabschTransform = kabschResult.transformMatrix;
+    alignmentManager.value.alignmentError = kabschResult.errorStats;
+    
+    // 计算最终变换矩阵
+    alignmentManager.value.finalTransform.multiplyMatrices(
+      alignmentManager.value.kabschTransform,
+      alignmentManager.value.stage1Transform
+    );
+    
+    // 应用变换到BIM模型
+    Object.values(loadedModels.value).forEach(model => {
+      model.applyMatrix4(alignmentManager.value.kabschTransform);
+    });
+    
+    // 更新顶点位置
+    if (vertexSelectionMode.value) {
+      updateVertexDisplay();
+    }
+    
+    // 评估配准质量
+    const qualityAssessment = assessAlignmentQuality(kabschResult.errorStats);
+    console.log('配准质量评估:', qualityAssessment);
+    
+    alignmentManager.value.stage2Complete = true;
+    alignmentManager.value.qualityAssessment = qualityAssessment;
+    
+    // 显示成功消息
+    const rms = kabschResult.errorStats.rms;
+    const qualityText = qualityAssessment.summary;
+    
+    ElMessage.success({
+      message: `精确配准完成！${qualityText}`,
+      duration: 5000
+    });
+    
+    // 如果质量较差，显示建议
+    if (qualityAssessment.recommendations.length > 0) {
+      setTimeout(() => {
+        ElMessage.warning({
+          message: `建议: ${qualityAssessment.recommendations.join('; ')}`,
+          duration: 8000
+        });
+      }, 2000);
+    }
+    
+  } catch (error) {
+    console.error('Kabsch配准失败:', error);
+    ElMessage.error('配准失败: ' + error.message);
+  } finally {
+    performingAlignment.value = false;
+  }
+}
+
+// 预览配准
+function previewAlignment() {
+  ElMessage.info('配准预览功能开发中...');
+}
+
+// 重置阶段2
+function resetStage2() {
+  // 恢复到阶段1完成后的状态
+  if (alignmentManager.value.kabschTransform) {
+    const inverseTransform = alignmentManager.value.kabschTransform.clone().invert();
+    Object.values(loadedModels.value).forEach(model => {
+      model.applyMatrix4(inverseTransform);
+    });
+  }
+  
+  alignmentManager.value.stage2Complete = false;
+  alignmentManager.value.kabschTransform.identity();
+  alignmentManager.value.finalTransform.copy(alignmentManager.value.stage1Transform);
+  alignmentManager.value.alignmentError = null;
+  alignmentManager.value.qualityAssessment = null;
+  
+  pointPairs.value = [];
+  addingPointPair.value = false;
+  addPointPairStep.value = 1;
+  currentPointPair.value = null;
+  
+  // 更新顶点位置
+  if (vertexSelectionMode.value) {
+    updateVertexDisplay();
+  }
+  
+  ElMessage.info('阶段2已重置');
+}
+
+// UI辅助函数
+
+// 获取误差等级样式类
+function getErrorClass(error) {
+  if (error < 0.02) return 'excellent';
+  if (error < 0.05) return 'good';
+  if (error < 0.1) return 'warning';
+  return 'error';
+}
+
+// 获取精度等级样式类
+function getAccuracyClass() {
+  if (!alignmentManager.value.alignmentError) return '';
+  const rms = alignmentManager.value.alignmentError.rms;
+  if (rms < 0.02) return 'excellent';
+  if (rms < 0.05) return 'good';
+  if (rms < 0.1) return 'warning';
+  return 'error';
+}
+
+// 获取精度描述文本
+function getAccuracyText() {
+  if (!alignmentManager.value.alignmentError) return '';
+  const rms = alignmentManager.value.alignmentError.rms;
+  if (rms < 0.02) return '优秀 (< 2cm)';
+  if (rms < 0.05) return '良好 (< 5cm)';
+  if (rms < 0.1) return '一般 (< 10cm)';
+  return '需要改进 (> 10cm)';
+}
+
+// 获取质量评分样式类
+function getQualityScoreClass(score) {
+  if (score >= 80) return 'excellent';
+  if (score >= 60) return 'good';
+  if (score >= 40) return 'warning';
+  return 'error';
+}
+
+// 显示误差分布
+function showErrorDistribution() {
+  if (!alignmentManager.value.alignmentError || !alignmentManager.value.alignmentError.individual) {
+    ElMessage.warning('没有误差数据');
+    return;
+  }
+  
+  const errors = alignmentManager.value.alignmentError.individual;
+  const errorStats = alignmentManager.value.alignmentError;
+  
+  let message = `误差分布统计:\n`;
+  message += `• 点对数量: ${errors.length}\n`;
+  message += `• RMS误差: ${errorStats.rms.toFixed(4)}m\n`;
+  message += `• 平均误差: ${errorStats.mean.toFixed(4)}m\n`;
+  message += `• 最大误差: ${errorStats.max.toFixed(4)}m\n`;
+  message += `• 最小误差: ${errorStats.min.toFixed(4)}m\n`;
+  message += `• 标准差: ${errorStats.std.toFixed(4)}m\n\n`;
+  
+  message += `各点对误差:\n`;
+  errors.forEach((error, index) => {
+    const pair = pointPairs.value[index];
+    const pairName = pair ? pair.name : `点对${index + 1}`;
+    message += `• ${pairName}: ${error.toFixed(4)}m\n`;
+  });
+  
+  ElMessageBox.alert(message, '误差分布详情', {
+    confirmButtonText: '确定',
+    type: 'info'
+  });
+}
+
+// 显示详细报告
+function showDetailedReport() {
+  if (!alignmentManager.value.alignmentError || !alignmentManager.value.qualityAssessment) {
+    ElMessage.warning('没有配准数据');
+    return;
+  }
+  
+  const errorStats = alignmentManager.value.alignmentError;
+  const quality = alignmentManager.value.qualityAssessment;
+  
+  let report = `配准详细报告\n`;
+  report += `==================\n\n`;
+  
+  report += `配准概况:\n`;
+  report += `• 配准方法: 两阶段Kabsch算法\n`;
+  report += `• 特征点对数量: ${pointPairs.value.length}\n`;
+  report += `• 配准时间: ${new Date().toLocaleString()}\n\n`;
+  
+  report += `误差统计:\n`;
+  report += `• RMS误差: ${errorStats.rms.toFixed(6)}m\n`;
+  report += `• 平均误差: ${errorStats.mean.toFixed(6)}m\n`;
+  report += `• 最大误差: ${errorStats.max.toFixed(6)}m\n`;
+  report += `• 最小误差: ${errorStats.min.toFixed(6)}m\n`;
+  report += `• 标准差: ${errorStats.std.toFixed(6)}m\n`;
+  report += `• 旋转角度: ${errorStats.rotation.toFixed(3)}°\n\n`;
+  
+  report += `质量评估:\n`;
+  report += `• 质量等级: ${quality.quality}\n`;
+  report += `• 质量评分: ${quality.score}/100\n`;
+  report += `• 质量摘要: ${quality.summary}\n\n`;
+  
+  if (quality.recommendations.length > 0) {
+    report += `改进建议:\n`;
+    quality.recommendations.forEach((rec, index) => {
+      report += `${index + 1}. ${rec}\n`;
+    });
+    report += `\n`;
+  }
+  
+  report += `特征点对详情:\n`;
+  pointPairs.value.forEach((pair, index) => {
+    const error = errorStats.individual[index];
+    report += `${pair.name}:\n`;
+    report += `  BIM点: (${pair.bimPoint.x.toFixed(3)}, ${pair.bimPoint.y.toFixed(3)}, ${pair.bimPoint.z.toFixed(3)})\n`;
+    report += `  RTK点: (${pair.rtkPoint.x.toFixed(3)}, ${pair.rtkPoint.y.toFixed(3)}, ${pair.rtkPoint.z.toFixed(3)})\n`;
+    report += `  误差: ${error.toFixed(6)}m\n\n`;
+  });
+  
+  ElMessageBox.alert(report, '配准详细报告', {
+    confirmButtonText: '确定',
+    type: 'info'
+  });
+}
+
+// 导出配准报告
+function exportAlignmentReport() {
+  if (!alignmentManager.value.alignmentError || !alignmentManager.value.qualityAssessment) {
+    ElMessage.warning('没有配准数据可导出');
+    return;
+  }
+  
+  // 生成报告内容
+  const errorStats = alignmentManager.value.alignmentError;
+  const quality = alignmentManager.value.qualityAssessment;
+  
+  const reportData = {
+    timestamp: new Date().toISOString(),
+    method: '两阶段Kabsch算法配准',
+    pointPairsCount: pointPairs.value.length,
+    stage1: {
+      bimBasePoint: alignmentManager.value.bimBasePoint,
+      rtkBasePoint: alignmentManager.value.rtkBasePoint,
+      completed: alignmentManager.value.stage1Complete
+    },
+    stage2: {
+      completed: alignmentManager.value.stage2Complete,
+      pointPairs: pointPairs.value.map((pair, index) => ({
+        name: pair.name,
+        bimPoint: pair.bimPoint,
+        rtkPoint: pair.rtkPoint,
+        error: errorStats.individual[index]
+      }))
+    },
+    errorStatistics: errorStats,
+    qualityAssessment: quality
+  };
+  
+  // 创建下载链接
+  const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `配准报告_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  
+  ElMessage.success('配准报告已导出');
+}
+
+// 处理设备点击事件
+function handleDeviceClick(device) {
+  if (addingPointPair.value && addPointPairStep.value === 2) {
+    // 阶段2：选择RTK点
+    selectRtkPointForPair(device.id);
+  } else {
+    // 正常编辑设备
+    editDevice(device);
+  }
+}
+
 // 生命周期钩子
 onMounted(async () => {
   // 初始化3D场景
@@ -1730,5 +2718,506 @@ onBeforeUnmount(() => {
 
 :deep(.el-slider__button) {
   border-color: #00ff88;
+}
+
+/* ==================== 配准系统样式 ==================== */
+
+.alignment-stage {
+  margin-bottom: 20px;
+  padding: 15px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.alignment-stage.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.stage-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 15px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.stage-title i {
+  color: #00ff88;
+}
+
+.status-badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.status-badge.success {
+  background-color: rgba(0, 255, 136, 0.2);
+  color: #00ff88;
+  border: 1px solid #00ff88;
+}
+
+.status-badge.disabled {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #888;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.base-point-section {
+  margin-bottom: 15px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.section-label {
+  font-weight: 500;
+  color: #e0e0e0;
+}
+
+.vertex-controls {
+  margin-bottom: 10px;
+}
+
+.control-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.control-label {
+  font-size: 14px;
+  color: #ccc;
+  min-width: 80px;
+}
+
+.base-point-info {
+  background: rgba(0, 255, 136, 0.1);
+  padding: 10px;
+  border-radius: 4px;
+  border-left: 3px solid #00ff88;
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.info-item:last-child {
+  margin-bottom: 0;
+}
+
+.info-label {
+  font-size: 13px;
+  color: #888;
+}
+
+.info-value {
+  font-size: 13px;
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.info-value.success {
+  color: #00ff88;
+}
+
+.rtk-base-controls {
+  margin-bottom: 10px;
+}
+
+.stage-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.feature-points-section {
+  margin-bottom: 15px;
+}
+
+.adding-point-pair {
+  background: rgba(255, 193, 7, 0.1);
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.add-point-step {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.step-label {
+  font-weight: 500;
+  color: #ffc107;
+}
+
+.step-desc {
+  font-size: 13px;
+  color: #ccc;
+}
+
+.point-pairs-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+.point-pair-item {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
+.pair-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.pair-name {
+  font-weight: 500;
+  color: #e0e0e0;
+}
+
+.pair-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.pair-coords {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.coord-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.coord-label {
+  font-size: 12px;
+  color: #888;
+  min-width: 35px;
+}
+
+.coord-value {
+  font-size: 12px;
+  color: #ccc;
+  font-family: monospace;
+}
+
+.point-pairs-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: rgba(64, 158, 255, 0.1);
+  border: 1px solid rgba(64, 158, 255, 0.3);
+  border-radius: 4px;
+  color: #409eff;
+  font-size: 13px;
+}
+
+.alignment-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
+.alignment-results {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 15px;
+}
+
+.result-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.result-item:last-child {
+  margin-bottom: 0;
+}
+
+.result-label {
+  font-size: 13px;
+  color: #ccc;
+}
+
+.result-value {
+  font-size: 13px;
+  font-weight: 500;
+  font-family: monospace;
+}
+
+.result-value.excellent {
+  color: #00ff88;
+}
+
+.result-value.good {
+  color: #ffc107;
+}
+
+.result-value.warning {
+  color: #ff6b6b;
+}
+
+.result-value.error {
+  color: #ff4757;
+  font-weight: 600;
+}
+
+.alignment-overview {
+  background: rgba(64, 158, 255, 0.1);
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(64, 158, 255, 0.3);
+}
+
+.overview-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.overview-item:last-child {
+  margin-bottom: 0;
+}
+
+.overview-label {
+  font-size: 14px;
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.overview-status {
+  font-size: 13px;
+  color: #888;
+}
+
+.overview-status.success {
+  color: #00ff88;
+  font-weight: 500;
+}
+
+.overview-status.excellent {
+  color: #00ff88;
+  font-weight: 600;
+}
+
+.overview-status.good {
+  color: #ffc107;
+  font-weight: 500;
+}
+
+.overview-status.warning {
+  color: #ff6b6b;
+  font-weight: 500;
+}
+
+.overview-status.error {
+  color: #ff4757;
+  font-weight: 600;
+}
+
+/* 滚动条样式 - 配准面板 */
+.point-pairs-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.point-pairs-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.point-pairs-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+}
+
+.point-pairs-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Element Plus 组件在配准面板中的样式调整 */
+:deep(.alignment-stage .el-switch__core) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+:deep(.alignment-stage .el-switch.is-checked .el-switch__core) {
+  background: #00ff88;
+}
+
+:deep(.alignment-stage .el-radio-button__inner) {
+  background: rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #e0e0e0;
+}
+
+:deep(.alignment-stage .el-radio-button__orig-radio:checked + .el-radio-button__inner) {
+  background: rgba(0, 255, 136, 0.2);
+  border-color: #00ff88;
+  color: #00ff88;
+}
+
+:deep(.alignment-stage .el-select .el-input__wrapper) {
+  background: rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+:deep(.alignment-stage .el-select .el-input__inner) {
+  color: #e0e0e0;
+}
+
+:deep(.alignment-stage .el-button--mini) {
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+/* 质量评估样式 */
+.quality-assessment {
+  margin-top: 15px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.quality-score {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.score-label {
+  font-size: 14px;
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.score-value {
+  font-size: 16px;
+  font-weight: 600;
+  font-family: monospace;
+}
+
+.score-value.excellent {
+  color: #00ff88;
+}
+
+.score-value.good {
+  color: #ffc107;
+}
+
+.score-value.warning {
+  color: #ff6b6b;
+}
+
+.score-value.error {
+  color: #ff4757;
+}
+
+.recommendations {
+  margin-top: 10px;
+}
+
+.recommendations-title {
+  font-size: 13px;
+  color: #ffc107;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.recommendations-list {
+  margin: 0;
+  padding-left: 16px;
+  color: #ccc;
+  font-size: 12px;
+}
+
+.recommendations-list li {
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.result-actions {
+  margin-top: 15px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* RTK设备选择状态样式 */
+.registered-device.rtk-selectable {
+  border: 2px solid #ffc107 !important;
+  background: rgba(255, 193, 7, 0.1) !important;
+  cursor: pointer;
+  animation: pulse 2s infinite;
+}
+
+.registered-device.rtk-selectable:hover {
+  background: rgba(255, 193, 7, 0.2) !important;
+  transform: scale(1.02);
+}
+
+.registered-device.rtk-selectable::after {
+  content: "点击选择";
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #ffc107;
+  color: #000;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(255, 193, 7, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0);
+  }
 }
 </style>

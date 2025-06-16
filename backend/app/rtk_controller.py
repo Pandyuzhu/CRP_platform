@@ -22,7 +22,7 @@ class RTKController:
         self.devices = {}
         
         # 默认UDP监听端口
-        self.udp_port = 60001  # 修改为一个合理的端口值
+        self.udp_port = 60001  # 修改端口值
         
         # 数据存储
         self.device_data = {}

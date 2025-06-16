@@ -18,16 +18,17 @@ ESP32_BOARDS = {
         "port": 5200,
         "name": "搅拌机1和喷射机控制板",
         "buttons": [
-            {"id": 1, "name": "搅拌运行", "action": "启动", "hex_code": "0x0001", "status": False},
-            {"id": 2, "name": "搅拌停止", "action": "停止", "hex_code": "0x0002", "status": False},
-            {"id": 3, "name": "输送启动", "action": "启动", "hex_code": "0x0004", "status": False},
-            {"id": 4, "name": "输送停止", "action": "停止", "hex_code": "0x0008", "status": False},
-            {"id": 5, "name": "喷浆启动", "action": "启动", "hex_code": "0x0010", "status": False},
-            {"id": 6, "name": "喷浆停止", "action": "停止", "hex_code": "0x0020", "status": False},
-            {"id": 7, "name": "水泵启动", "action": "启动", "hex_code": "0x0040", "status": False},
-            {"id": 8, "name": "水泵停止", "action": "停止", "hex_code": "0x0080", "status": False},
-            {"id": 9, "name": "水阀启动", "action": "启动", "hex_code": "0x0100", "status": False},
-            {"id": 10, "name": "水阀停止", "action": "停止", "hex_code": "0x0200", "status": False}
+             {"id": 1, "name": "搅拌运行", "action": "启动", "hex_code": "0x0100", "status": False},
+            {"id": 2, "name": "搅拌停止", "action": "停止", "hex_code": "0x0200", "status": False},
+            {"id": 3, "name": "输送启动", "action": "启动", "hex_code": "0x0400", "status": False},
+            {"id": 4, "name": "输送停止", "action": "停止", "hex_code": "0x0800", "status": False},
+            {"id": 5, "name": "喷浆启动", "action": "启动", "hex_code": "0x1000", "status": False},
+            {"id": 6, "name": "喷浆停止", "action": "停止", "hex_code": "0x2000", "status": False},
+            {"id": 7, "name": "水泵启动", "action": "启动", "hex_code": "0x4000", "status": False},
+            {"id": 8, "name": "水泵停止", "action": "停止", "hex_code": "0x8000", "status": False},
+            {"id": 9, "name": "水阀启动", "action": "启动", "hex_code": "0x0001", "status": False},
+            {"id": 10, "name": "水阀停止", "action": "停止", "hex_code": "0x0002", "status": False},
+            {"id": 11, "name": "喷浆反转", "action": "启动", "hex_code": "0x0004", "status": False}
         ]
     },
     "board2": {
@@ -35,18 +36,18 @@ ESP32_BOARDS = {
         "port": 3540,
         "name": "搅拌机2和末端喷头控制板",
         "buttons": [
-            {"id": 1, "name": "搅拌运行", "action": "启动", "hex_code": "0x0001", "status": False},
-            {"id": 2, "name": "搅拌停止", "action": "停止", "hex_code": "0x0002", "status": False},
-            {"id": 3, "name": "输送启动", "action": "启动", "hex_code": "0x0004", "status": False},
-            {"id": 4, "name": "输送停止", "action": "停止", "hex_code": "0x0008", "status": False},
-            {"id": 5, "name": "水泵启动", "action": "启动", "hex_code": "0x0010", "status": False},
-            {"id": 6, "name": "水泵停止", "action": "停止", "hex_code": "0x0020", "status": False},
-            {"id": 7, "name": "水阀启动", "action": "启动", "hex_code": "0x0040", "status": False},
-            {"id": 8, "name": "水阀停止", "action": "停止", "hex_code": "0x0080", "status": False},
-            {"id": 9, "name": "喷头纤维喷射启动", "action": "启动", "hex_code": "0x0100", "status": False},
-            {"id": 10, "name": "喷头纤维喷射停止", "action": "停止", "hex_code": "0x0200", "status": False},
-            {"id": 11, "name": "喷头浆料喷射启动", "action": "启动", "hex_code": "0x0400", "status": False},
-            {"id": 12, "name": "喷头浆料喷射停止", "action": "停止", "hex_code": "0x0800", "status": False}
+            {"id": 1, "name": "搅拌运行", "action": "启动", "hex_code": "0x0100", "status": False},
+            {"id": 2, "name": "搅拌停止", "action": "停止", "hex_code": "0x0200", "status": False},
+            {"id": 3, "name": "输送启动", "action": "启动", "hex_code": "0x0400", "status": False},
+            {"id": 4, "name": "输送停止", "action": "停止", "hex_code": "0x0800", "status": False},
+            {"id": 5, "name": "水泵启动", "action": "启动", "hex_code": "0x1000", "status": False},
+            {"id": 6, "name": "水泵停止", "action": "停止", "hex_code": "0x2000", "status": False},
+            {"id": 7, "name": "水阀启动", "action": "启动", "hex_code": "0x4000", "status": False},
+            {"id": 8, "name": "水阀停止", "action": "停止", "hex_code": "0x8000", "status": False},
+            {"id": 9, "name": "开启搅拌仓1", "action": "启动", "hex_code": "0x0001", "status": False},
+            {"id": 10, "name": "关闭搅拌仓1", "action": "停止", "hex_code": "0x0002", "status": False},
+            {"id": 11, "name": "开启搅拌仓2", "action": "启动", "hex_code": "0x0004", "status": False},
+            {"id": 12, "name": "关闭搅拌仓2", "action": "停止", "hex_code": "0x0008", "status": False}
         ]
     }
 }
@@ -54,9 +55,9 @@ ESP32_BOARDS = {
 # 按钮分组
 BUTTON_GROUPS = {
     "mixer1": ["搅拌运行", "搅拌停止", "输送启动", "输送停止", "水泵启动", "水泵停止", "水阀启动", "水阀停止"],
-    "sprayer": ["喷浆启动", "喷浆停止"],
+    "sprayer": ["喷浆启动", "喷浆停止", "喷浆反转"],
     "mixer2": ["搅拌运行", "搅拌停止", "输送启动", "输送停止", "水泵启动", "水泵停止", "水阀启动", "水阀停止"],
-    "nozzle": ["喷头纤维喷射启动", "喷头纤维喷射停止", "喷头浆料喷射启动", "喷头浆料喷射停止"]
+    "nozzle": ["开启搅拌仓1", "关闭搅拌仓1", "开启搅拌仓2", "关闭搅拌仓2"]
 }
 
 class ESP32Controller:
@@ -82,7 +83,7 @@ class ESP32Controller:
                     {"id": 8, "name": "水泵停止", "action": "停止", "hex_code": "0x8000", "status": False},
                     {"id": 9, "name": "水阀启动", "action": "启动", "hex_code": "0x0001", "status": False},
                     {"id": 10, "name": "水阀停止", "action": "停止", "hex_code": "0x0002", "status": False},
-                    {"id": 11, "name": "喷浆反转", "action": "反转", "hex_code": "0x0004", "status": False},
+                    {"id": 11, "name": "喷浆反转", "action": "启动", "hex_code": "0x0004", "status": False},
                 ]
             },
             "board2": {
@@ -99,10 +100,10 @@ class ESP32Controller:
                     {"id": 6, "name": "水泵停止", "action": "停止", "hex_code": "0x2000", "status": False},
                     {"id": 7, "name": "水阀启动", "action": "启动", "hex_code": "0x4000", "status": False},
                     {"id": 8, "name": "水阀停止", "action": "停止", "hex_code": "0x8000", "status": False},
-                    {"id": 9, "name": "纤维喷射启动", "action": "启动", "hex_code": "0x0100", "status": False},
-                    {"id": 10, "name": "纤维喷射停止", "action": "停止", "hex_code": "0x0200", "status": False},
-                    {"id": 11, "name": "浆料喷射启动", "action": "启动", "hex_code": "0x0400", "status": False},
-                    {"id": 12, "name": "浆料喷射停止", "action": "停止", "hex_code": "0x0800", "status": False}
+                    {"id": 9, "name": "开启搅拌仓1", "action": "启动", "hex_code": "0x0100", "status": False},
+                    {"id": 10, "name": "关闭搅拌仓1", "action": "停止", "hex_code": "0x0200", "status": False},
+                    {"id": 11, "name": "开启搅拌仓2", "action": "启动", "hex_code": "0x0400", "status": False},
+                    {"id": 12, "name": "关闭搅拌仓2", "action": "停止", "hex_code": "0x0800", "status": False}
                 ]
             }
         }

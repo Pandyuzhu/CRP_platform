@@ -29,7 +29,8 @@ BOARD1_BUTTONS = {
     0x0040: {"name": "水泵启动", "action": "启动", "component": "搅拌机1", "color": Fore.GREEN},
     0x0080: {"name": "水泵停止", "action": "停止", "component": "搅拌机1", "color": Fore.RED},
     0x0100: {"name": "水阀启动", "action": "启动", "component": "搅拌机1", "color": Fore.GREEN},
-    0x0200: {"name": "水阀停止", "action": "停止", "component": "搅拌机1", "color": Fore.RED}
+    0x0200: {"name": "水阀停止", "action": "停止", "component": "搅拌机1", "color": Fore.RED},
+    0x0400: {"name": "喷浆反转", "action": "启动", "component": "喷射机", "color": Fore.BLUE}
 }
 
 # 控制板2的按钮定义 (搅拌机2和末端喷头)
@@ -42,10 +43,10 @@ BOARD2_BUTTONS = {
     0x0020: {"name": "水泵停止", "action": "停止", "component": "搅拌机2", "color": Fore.RED},
     0x0040: {"name": "水阀启动", "action": "启动", "component": "搅拌机2", "color": Fore.GREEN},
     0x0080: {"name": "水阀停止", "action": "停止", "component": "搅拌机2", "color": Fore.RED},
-    0x0100: {"name": "纤维喷射启动", "action": "启动", "component": "末端喷头", "color": Fore.GREEN},
-    0x0200: {"name": "纤维喷射停止", "action": "停止", "component": "末端喷头", "color": Fore.RED},
-    0x0400: {"name": "浆料喷射启动", "action": "启动", "component": "末端喷头", "color": Fore.GREEN},
-    0x0800: {"name": "浆料喷射停止", "action": "停止", "component": "末端喷头", "color": Fore.RED}
+    0x0100: {"name": "开启搅拌仓1", "action": "启动", "component": "末端喷头", "color": Fore.GREEN},
+    0x0200: {"name": "关闭搅拌仓1", "action": "停止", "component": "末端喷头", "color": Fore.RED},
+    0x0400: {"name": "开启搅拌仓2", "action": "启动", "component": "末端喷头", "color": Fore.GREEN},
+    0x0800: {"name": "关闭搅拌仓2", "action": "停止", "component": "末端喷头", "color": Fore.RED}
 }
 
 # 全局变量，用于控制线程退出

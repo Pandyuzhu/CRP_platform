@@ -224,7 +224,7 @@ export default {
       // 获取控制板2上末端喷头相关的按钮
       console.log('board2Buttons:', this.board2Buttons);
       const nozzleButtons = this.board2Buttons.filter(btn => 
-        ['纤维喷射启动', '纤维喷射停止', '浆料喷射启动', '浆料喷射停止'].includes(btn.name)
+        ['开启搅拌仓1', '关闭搅拌仓1', '开启搅拌仓2', '关闭搅拌仓2'].includes(btn.name)
       );
       console.log('过滤后的nozzleButtons:', nozzleButtons);
       
@@ -313,7 +313,8 @@ export default {
         {"id": 7, "name": "水泵启动", "action": "启动", "hex_code": "0x0040", "status": false},
         {"id": 8, "name": "水泵停止", "action": "停止", "hex_code": "0x0080", "status": false},
         {"id": 9, "name": "水阀启动", "action": "启动", "hex_code": "0x0100", "status": false},
-        {"id": 10, "name": "水阀停止", "action": "停止", "hex_code": "0x0200", "status": false}
+        {"id": 10, "name": "水阀停止", "action": "停止", "hex_code": "0x0200", "status": false},
+        {"id": 11, "name": "喷浆反转", "action": "启动", "hex_code": "0x0400", "status": false}
       ];
       
       // 控制板2上的按钮 (搅拌机2和末端喷头)
@@ -326,10 +327,10 @@ export default {
         {"id": 6, "name": "水泵停止", "action": "停止", "hex_code": "0x0020", "status": false},
         {"id": 7, "name": "水阀启动", "action": "启动", "hex_code": "0x0040", "status": false},
         {"id": 8, "name": "水阀停止", "action": "停止", "hex_code": "0x0080", "status": false},
-        {"id": 9, "name": "纤维喷射启动", "action": "启动", "hex_code": "0x0100", "status": false},
-        {"id": 10, "name": "纤维喷射停止", "action": "停止", "hex_code": "0x0200", "status": false},
-        {"id": 11, "name": "浆料喷射启动", "action": "启动", "hex_code": "0x0400", "status": false},
-        {"id": 12, "name": "浆料喷射停止", "action": "停止", "hex_code": "0x0800", "status": false}
+        {"id": 9, "name": "开启搅拌仓1", "action": "启动", "hex_code": "0x0100", "status": false},
+        {"id": 10, "name": "关闭搅拌仓1", "action": "停止", "hex_code": "0x0200", "status": false},
+        {"id": 11, "name": "开启搅拌仓2", "action": "启动", "hex_code": "0x0400", "status": false},
+        {"id": 12, "name": "关闭搅拌仓2", "action": "停止", "hex_code": "0x0800", "status": false}
       ];
     },
     
@@ -366,17 +367,43 @@ export default {
       // 更新按钮状态
       if (button.action === '启动') {
         button.status = true;
-        // 将对应的停止按钮状态设为false
-        if (buttonId % 2 === 1) { // 奇数ID是启动按钮
-          const stopButton = buttons.find(btn => btn.id === buttonId + 1);
-          if (stopButton) stopButton.status = false;
+        
+        // 特殊处理喷射机的按钮组合
+        if (boardId === 'board1' && (button.name === '喷浆启动' || button.name === '喷浆反转')) {
+          // 当点击喷浆启动时，清除喷浆反转状态；当点击喷浆反转时，清除喷浆启动状态
+          if (button.name === '喷浆启动') {
+            const sprayReverseButton = buttons.find(btn => btn.name === '喷浆反转');
+            if (sprayReverseButton) sprayReverseButton.status = false;
+          } else if (button.name === '喷浆反转') {
+            const sprayStartButton = buttons.find(btn => btn.name === '喷浆启动');
+            if (sprayStartButton) sprayStartButton.status = false;
+          }
+          // 清除喷浆停止状态
+          const sprayStopButton = buttons.find(btn => btn.name === '喷浆停止');
+          if (sprayStopButton) sprayStopButton.status = false;
+        } else {
+          // 普通的启动/停止配对逻辑
+          if (buttonId % 2 === 1) { // 奇数ID是启动按钮
+            const stopButton = buttons.find(btn => btn.id === buttonId + 1);
+            if (stopButton) stopButton.status = false;
+          }
         }
-      } else {
+      } else if (button.action === '停止') {
         button.status = false;
-        // 将对应的启动按钮状态设为false
-        if (buttonId % 2 === 0) { // 偶数ID是停止按钮
-          const startButton = buttons.find(btn => btn.id === buttonId - 1);
-          if (startButton) startButton.status = false;
+        
+        // 特殊处理喷射机的按钮组合
+        if (boardId === 'board1' && button.name === '喷浆停止') {
+          // 当点击喷浆停止时，清除喷浆启动和喷浆反转的状态
+          const sprayStartButton = buttons.find(btn => btn.name === '喷浆启动');
+          const sprayReverseButton = buttons.find(btn => btn.name === '喷浆反转');
+          if (sprayStartButton) sprayStartButton.status = false;
+          if (sprayReverseButton) sprayReverseButton.status = false;
+        } else {
+          // 普通的启动/停止配对逻辑
+          if (buttonId % 2 === 0) { // 偶数ID是停止按钮
+            const startButton = buttons.find(btn => btn.id === buttonId - 1);
+            if (startButton) startButton.status = false;
+          }
         }
       }
     },
@@ -397,10 +424,10 @@ export default {
     // 确保末端喷头按钮名称正确
     fixNozzleButtonNames() {
       const nozzleButtonNames = {
-        9: "纤维喷射启动",
-        10: "纤维喷射停止",
-        11: "浆料喷射启动",
-        12: "浆料喷射停止"
+        9: "开启搅拌仓1",
+        10: "关闭搅拌仓1",
+        11: "开启搅拌仓2",
+        12: "关闭搅拌仓2"
       };
       
       // 更新末端喷头按钮名称
