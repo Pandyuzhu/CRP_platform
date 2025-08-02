@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class ArmStreamingService:
     """机械臂WebRTC流服务类"""
     
-    def __init__(self, stream_url: str = "http://192.168.43.9/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72"):
+    def __init__(self, stream_url: str = "http://192.168.0.51/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72"):
         """初始化机械臂流服务
         
         Args:
@@ -41,7 +41,7 @@ class ArmStreamingService:
         
         try:
             # 对于WebRTC，检查播放器页面是否可访问
-            check_url = "http://192.168.43.9/player/"
+            check_url = "http://192.168.0.51/player/"
             response = requests.get(
                 check_url, 
                 timeout=self.connection_timeout,

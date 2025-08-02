@@ -5,7 +5,7 @@
 
 **新的WebRTC地址**：
 ```
-http://192.168.43.9/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72
+http://192.168.0.51/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72
 ```
 
 ## 技术对比
@@ -72,7 +72,7 @@ data() {
     // streamUrl: '/hlsram/live0/index.m3u8',
     
     // 新的WebRTC地址
-    webrtcUrl: 'http://192.168.43.9/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72',
+    webrtcUrl: 'http://192.168.0.51/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72',
     
     // 其他配置...
   }
@@ -104,7 +104,7 @@ proxy: {
   
   // 更新WebRTC代理
   '/player': {
-    target: 'http://192.168.43.9',
+    target: 'http://192.168.0.51',
     changeOrigin: true,
     secure: false,
     ws: true,  // 支持WebSocket连接
@@ -121,7 +121,7 @@ proxy: {
 **修改流地址和检查逻辑**：
 ```python
 class ArmStreamingService:
-    def __init__(self, stream_url: str = "http://192.168.43.9/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72"):
+    def __init__(self, stream_url: str = "http://192.168.0.51/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72"):
         # 更新初始化参数...
 ```
 
@@ -133,7 +133,7 @@ def check_camera_connection(self) -> bool:
     # 可以检查WebRTC信令服务器或播放器端点
     try:
         # 检查WebRTC播放器页面是否可访问
-        check_url = "http://192.168.43.9/player/"
+        check_url = "http://192.168.0.51/player/"
         response = requests.get(check_url, timeout=self.connection_timeout)
         # 处理响应...
     except Exception as e:

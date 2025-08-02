@@ -89,7 +89,7 @@ export default {
       isBackendConnected: false,
       isArmCameraConnected: false,
       checkBackendTimer: null,
-      webrtcUrl: 'http://192.168.43.9/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72',
+              webrtcUrl: 'http://192.168.0.51/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72',
       debugMode: false
     }
   },
