@@ -22,6 +22,13 @@ export default defineConfig({
         target: 'ws://localhost:8000',
         ws: true,
         changeOrigin: true
+      },
+      // 添加HLS流代理，解决CORS问题
+      '/hlsram': {
+        target: 'http://192.168.43.9:80',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path
       }
     }
   }

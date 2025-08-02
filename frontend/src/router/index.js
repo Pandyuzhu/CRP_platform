@@ -4,6 +4,7 @@ import MixerMonitor from '../views/MixerMonitor.vue'
 import VideoMonitor from '../views/VideoMonitor.vue'
 import SprayMonitor from '../views/SprayMonitor.vue'
 import RtkMonitor from '../views/RtkMonitor.vue'
+import ArmMonitor from '../views/ArmMonitor.vue'
 
 const routes = [
   // 默认路由重定向到搅拌监控
@@ -31,6 +32,13 @@ const routes = [
     path: '/rtk', 
     component: RtkMonitor, 
     name: 'rtk' 
+  },
+  
+  // 机械臂监控
+  { 
+    path: '/arm', 
+    component: ArmMonitor, 
+    name: 'arm' 
   },
   
   // 保留旧的视频路由以向后兼容

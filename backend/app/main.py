@@ -19,6 +19,7 @@ import json
 from fastapi.responses import StreamingResponse, FileResponse
 from app.video_streaming import VideoCamera
 from app.lift_controller import lift_car_controller
+from app.arm_streaming import arm_streaming_service
 
 # Initialize FastAPI app
 app = FastAPI(title="Smart Construction Platform")
@@ -686,4 +687,15 @@ async def get_model_file(model_id: str):
     """获取建筑模型文件"""
     from fastapi.responses import FileResponse
     file_path = model_manager.get_model_file_path(model_id)
-    return FileResponse(file_path) 
+    return FileResponse(file_path)
+
+# 机械臂相关API
+@app.get("/api/arm/status")
+async def get_arm_status():
+    """获取机械臂摄像头状态"""
+    return arm_streaming_service.get_status()
+
+@app.get("/api/arm/stream_info")
+async def get_arm_stream_info():
+    """获取机械臂视频流信息"""
+    return arm_streaming_service.get_stream_info() 

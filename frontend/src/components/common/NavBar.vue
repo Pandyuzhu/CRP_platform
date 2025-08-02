@@ -30,6 +30,14 @@
           <v-icon size="small" class="mr-1">mdi-map-marker-path</v-icon>
           RTK定位监控
         </router-link>
+        <router-link 
+          :to="{ name: 'arm' }" 
+          :class="{ 'active': currentRoute === 'arm' }"
+          class="nav-link"
+        >
+          <v-icon size="small" class="mr-1">mdi-robot-industrial</v-icon>
+          机械臂监控
+        </router-link>
       </div>
       <div class="system-status">
         <div class="status-indicator" :class="{ 'online': isSystemOnline }"></div>

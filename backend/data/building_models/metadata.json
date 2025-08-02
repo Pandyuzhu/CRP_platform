@@ -1,1 +1,32 @@
-{}
+{
+  "model_20250618_000531": {
+    "id": "model_20250618_000531",
+    "name": "1",
+    "filename": "model_20250618_000531.glb",
+    "format": ".glb",
+    "upload_time": "2025-06-18T00:05:31.735258",
+    "position": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "scale": {
+      "x": 1,
+      "y": 1,
+      "z": 1
+    },
+    "opacity": 0.7,
+    "visible": true,
+    "description": "",
+    "reference_point": {
+      "latitude": 0,
+      "longitude": 0,
+      "altitude": 0
+    }
+  }
+}
