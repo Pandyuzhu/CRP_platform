@@ -25,7 +25,7 @@ export default defineConfig({
       },
       // 添加HLS流代理，解决CORS问题
       '/hlsram': {
-        target: 'http://192.168.43.9:80',
+        target: 'http://192.168.0.51:80',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path

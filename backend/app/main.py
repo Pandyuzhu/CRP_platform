@@ -698,4 +698,6 @@ async def get_arm_status():
 @app.get("/api/arm/stream_info")
 async def get_arm_stream_info():
     """获取机械臂视频流信息"""
-    return arm_streaming_service.get_stream_info() 
+    return arm_streaming_service.get_stream_info()
+
+ 

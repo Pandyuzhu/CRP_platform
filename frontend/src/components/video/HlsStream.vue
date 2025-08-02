@@ -66,6 +66,7 @@ export default {
       maxReconnectAttempts: 5,
       reconnectTimer: null,
       statusCheckTimer: null,
+      latencyCheckTimer: null,  // 新增：延迟检查定时器
       lastErrorTime: 0,
       _hasInitialized: false,
       lastError: '',
@@ -127,11 +128,30 @@ export default {
             autoStartLoad: true,
             startPosition: -1,
             capLevelToPlayerSize: true,
-            // 使用更保守的配置以提高兼容性
-            maxBufferLength: 30,
-            maxMaxBufferLength: 600,
-            maxBufferSize: 60 * 1000 * 1000,
-            maxBufferHole: 0.5
+            
+            // === 低延迟优化配置 ===
+            // 减少缓冲时间
+            maxBufferLength: 3,           // 最大缓冲3秒（原30秒）
+            maxMaxBufferLength: 10,       // 最大缓冲10秒（原600秒）
+            maxBufferSize: 10 * 1000 * 1000,  // 10MB缓冲（原60MB）
+            maxBufferHole: 0.1,           // 减少缓冲空洞容忍度
+            
+            // 快速开始播放
+            lowLatencyMode: true,         // 启用低延迟模式
+            backBufferLength: 2,          // 后向缓冲2秒
+            liveSyncDurationCount: 1,     // 实时同步片段数量
+            liveMaxLatencyDurationCount: 3, // 最大延迟片段数量
+            
+            // 快速加载和切换
+            maxLoadingDelay: 1,           // 最大加载延迟1秒
+            maxFragLookUpTolerance: 0.1,  // 片段查找容忍度
+            highBufferWatchdogPeriod: 1,  // 高缓冲监控周期
+            
+            // 播放策略优化
+            manifestLoadingTimeOut: 5000,     // 清单加载超时5秒
+            manifestLoadingMaxRetry: 2,       // 清单加载最大重试2次
+            fragLoadingTimeOut: 10000,        // 片段加载超时10秒
+            fragLoadingMaxRetry: 3            // 片段加载最大重试3次
           };
           
           this.hls = new Hls(hlsConfig);
@@ -146,10 +166,24 @@ export default {
             this.reconnectAttempts = 0;
             this.currentStatus = '清单已解析，开始播放';
             
+            // === 新增：跳转到最新位置 ===
+            const levels = this.hls.levels;
+            if (levels && levels.length > 0) {
+              // 跳转到最新的可用位置（减少延迟）
+              const duration = this.hls.media.duration;
+              if (duration && duration > 10) {
+                // 如果总时长大于10秒，跳转到最后10秒的位置
+                this.hls.media.currentTime = Math.max(0, duration - 10);
+              }
+            }
+            
             video.play().then(() => {
               this.isStreamActive = true;
               this.currentStatus = '播放中';
               console.log('HLS stream started successfully');
+              
+              // === 新增：监控和调整播放位置 ===
+              this.startLatencyOptimization();
             }).catch(error => {
               const errorMsg = `播放启动失败: ${error.message}`;
               console.error(errorMsg, error);
@@ -227,6 +261,9 @@ export default {
     stopStream() {
       console.log('停止HLS视频流');
       
+      // 停止延迟优化监控
+      this.stopLatencyOptimization();
+      
       if (this.hls) {
         this.hls.destroy();
         this.hls = null;
@@ -300,6 +337,11 @@ export default {
         clearInterval(this.statusCheckTimer);
         this.statusCheckTimer = null;
       }
+      // 新增：清理延迟检查定时器
+      if (this.latencyCheckTimer) {
+        clearInterval(this.latencyCheckTimer);
+        this.latencyCheckTimer = null;
+      }
     },
     
     // 确保在组件失活时停止流
@@ -333,6 +375,39 @@ export default {
       } catch (error) {
         console.error('流地址检查失败:', error);
         return false;
+      }
+    },
+    
+    // === 新增：延迟优化相关方法 ===
+    // 启动延迟优化监控
+    startLatencyOptimization() {
+      // 每5秒检查一次播放延迟
+      this.latencyCheckTimer = setInterval(() => {
+        this.checkAndAdjustLatency();
+      }, 5000);
+    },
+    
+    // 检查并调整播放延迟
+    checkAndAdjustLatency() {
+      if (!this.hls || !this.hls.media) return;
+      
+      const video = this.hls.media;
+      const currentTime = video.currentTime;
+      const duration = video.duration;
+      
+      // 如果延迟超过15秒，跳转到更接近实时的位置
+      if (duration && (duration - currentTime) > 15) {
+        const targetTime = Math.max(0, duration - 5);
+        console.log(`延迟过高，从 ${currentTime.toFixed(1)}s 跳转到 ${targetTime.toFixed(1)}s`);
+        video.currentTime = targetTime;
+      }
+    },
+    
+    // 停止延迟优化监控
+    stopLatencyOptimization() {
+      if (this.latencyCheckTimer) {
+        clearInterval(this.latencyCheckTimer);
+        this.latencyCheckTimer = null;
       }
     },
     

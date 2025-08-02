@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class ArmStreamingService:
     """机械臂HLS流服务类"""
     
-    def __init__(self, stream_url: str = "http://192.168.43.9:80/hlsram/live0/index.m3u8"):
+    def __init__(self, stream_url: str = "http://192.168.0.51:80/hlsram/live0/index.m3u8"):
         """初始化机械臂流服务
         
         Args:
