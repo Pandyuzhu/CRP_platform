@@ -18,11 +18,12 @@
       </div>
       
       <div class="video-section">
-        <HlsStream 
+        <WebRtcStream 
           @stream-status-change="updateStreamStatus" 
           :debugMode="debugMode"
-          :streamUrl="streamUrl"
-          ref="hlsStream" 
+          :streamUrl="webrtcUrl"
+          :audioEnabled="true"
+          ref="webrtcStream" 
         />
       </div>
       
@@ -53,11 +54,15 @@
             </div>
             <div class="info-item">
               <span class="info-label">流地址:</span>
-              <span class="info-value">{{ streamUrl }}</span>
+              <span class="info-value">{{ webrtcUrl.substring(0, 50) }}...</span>
             </div>
             <div class="info-item">
               <span class="info-label">协议类型:</span>
-              <span class="info-value">HLS (HTTP Live Streaming)</span>
+              <span class="info-value">WebRTC (Web Real-Time Communication)</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">音频支持:</span>
+              <span class="info-value">{{ isStreamActive ? '已启用' : '无数据' }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">延迟优化:</span>
@@ -71,12 +76,12 @@
 </template>
 
 <script>
-import HlsStream from '../components/video/HlsStream.vue';
+import WebRtcStream from '../components/video/WebRtcStream.vue';
 
 export default {
   name: 'ArmMonitor',
   components: {
-    HlsStream
+    WebRtcStream
   },
   data() {
     return {
@@ -84,7 +89,7 @@ export default {
       isBackendConnected: false,
       isArmCameraConnected: false,
       checkBackendTimer: null,
-      streamUrl: '/hlsram/live0/index.m3u8',  // 使用代理路径
+      webrtcUrl: 'http://192.168.43.9/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72',
       debugMode: false
     }
   },

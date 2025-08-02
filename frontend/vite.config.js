@@ -23,7 +23,15 @@ export default defineConfig({
         ws: true,
         changeOrigin: true
       },
-      // 添加HLS流代理，解决CORS问题
+      // 添加WebRTC播放器代理，解决CORS问题
+      '/player': {
+        target: 'http://192.168.43.9',
+        changeOrigin: true,
+        secure: false,
+        ws: true,  // 支持WebSocket连接
+        rewrite: (path) => path
+      },
+      // 保留HLS代理以备其他用途
       '/hlsram': {
         target: 'http://192.168.43.9:80',
         changeOrigin: true,

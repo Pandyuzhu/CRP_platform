@@ -1,5 +1,5 @@
 """
-机械臂HLS视频流服务模块
+机械臂WebRTC视频流服务模块
 提供机械臂摄像头状态监控和流信息管理
 """
 
@@ -11,13 +11,13 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 class ArmStreamingService:
-    """机械臂HLS流服务类"""
+    """机械臂WebRTC流服务类"""
     
-    def __init__(self, stream_url: str = "http://192.168.43.9:80/hlsram/live0/index.m3u8"):
+    def __init__(self, stream_url: str = "http://192.168.43.9/player/webrtc?streamPath=hlsram/live0&isMute=1&auto=1&aspect=0&hasAudio=1&username=admin&auth=f6fdffe48c908deb0f4c3bd36c032e72"):
         """初始化机械臂流服务
         
         Args:
-            stream_url (str): HLS流地址
+            stream_url (str): WebRTC流地址
         """
         self.stream_url = stream_url
         self.is_connected = True  # 默认为连接状态，避免初始显示为离线
@@ -40,22 +40,22 @@ class ArmStreamingService:
         self.last_check_time = current_time
         
         try:
-            # 使用GET请求替代HEAD请求，添加stream=True避免下载完整内容
+            # 对于WebRTC，检查播放器页面是否可访问
+            check_url = "http://192.168.43.9/player/"
             response = requests.get(
-                self.stream_url, 
+                check_url, 
                 timeout=self.connection_timeout,
-                allow_redirects=True,
-                stream=True  # 不下载完整内容，只检查连接
+                allow_redirects=True
             )
             
             # 检查响应状态
             if response.status_code == 200:
                 if not self.is_connected:  # 只在状态改变时记录日志
-                    logger.info(f"机械臂摄像头连接恢复正常: {self.stream_url}")
+                    logger.info(f"机械臂WebRTC播放器连接恢复正常: {check_url}")
                 self.is_connected = True
             else:
                 if self.is_connected:  # 只在状态改变时记录日志
-                    logger.warning(f"机械臂摄像头响应异常: {response.status_code}")
+                    logger.warning(f"机械臂WebRTC播放器响应异常: {response.status_code}")
                 self.is_connected = False
                 
             # 关闭响应流，释放资源
@@ -93,8 +93,9 @@ class ArmStreamingService:
         return {
             "camera_connected": camera_connected,
             "stream_url": self.stream_url,
-            "stream_type": "HLS",
-            "protocol": "HTTP Live Streaming",
+            "stream_type": "WebRTC",
+            "protocol": "Web Real-Time Communication",
+            "audio_enabled": True,
             "last_check": self.last_check_time,
             "check_interval": self.check_interval,
             "low_latency_enabled": True,
